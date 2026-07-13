@@ -2454,10 +2454,10 @@ def compute_zone_stats_with_movement(raw: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_raw_for_subzones(
     years: tuple,
-    pitch_type: str,
-    p_throws: str,
-    stand: str,
-    count_state: str,
+    pitch_type: str = "All",
+    p_throws: str = "All",
+    stand: str = "All",
+    count_state: str = "All",
     velo_min: float = 60.0,
     velo_max: float = 105.0,
     spin_min: float = 800.0,
@@ -2468,37 +2468,54 @@ def load_raw_for_subzones(
     vbrk_max: float = 22.0,
 ) -> pd.DataFrame:
     """
-    Load minimal raw columns needed for sub-zone analysis.
-    Uses pyarrow predicate pushdown → fast (~1-2 s, cached after first run).
+    Ładuje surowe dane potrzebne do sub-zone analysis — teraz po miesiącach.
     """
     RAW_COLS = [
-        "pitch_type", "zone", "stand", "p_throws", "balls", "strikes",
-        "plate_x", "plate_z", "description",
-        "release_speed", "release_spin_rate", "pfx_x", "pfx_z",
-        "launch_speed", "launch_angle", "estimated_woba_using_speedangle",
+        "pitch_type","zone","stand","p_throws","balls","strikes",
+        "plate_x","plate_z","description",
+        "release_speed","release_spin_rate","pfx_x","pfx_z",
+        "launch_speed","launch_angle","estimated_woba_using_speedangle",
     ]
     parts = []
-    for yr in years:
-        path = STATCAST_FILES.get(yr)
-        if path is None or not path.exists():
-            continue
-        if PYARROW_OK:
-            sc     = set(pq.read_schema(str(path)).names)
-            use    = [c for c in RAW_COLS if c in sc]
-            flt    = []
-            if pitch_type != "All": flt.append(("pitch_type","=", pitch_type))
-            if p_throws   != "All": flt.append(("p_throws",  "=", p_throws))
-            if stand      != "All": flt.append(("stand",     "=", stand))
-            df = pq.read_table(str(path), columns=use,
-                               filters=flt or None).to_pandas()
-        else:
-            df = pd.read_parquet(path, engine="pyarrow", columns=RAW_COLS)
-            if pitch_type != "All": df = df[df["pitch_type"] == pitch_type]
-            if p_throws   != "All": df = df[df["p_throws"]   == p_throws]
-            if stand      != "All": df = df[df["stand"]       == stand]
 
-        df["game_year"] = yr
-        parts.append(df)
+    for yr in years:
+        if yr not in STATCAST_FILES:
+            continue
+        for path in STATCAST_FILES[yr]:
+            if not path.exists():
+                continue
+            try:
+                if PYARROW_OK:
+                    schema_cols = set(pq.read_schema(str(path)).names)
+                    use_cols = [c for c in RAW_COLS if c in schema_cols]
+                    
+                    filters = []
+                    if pitch_type != "All":
+                        filters.append(("pitch_type", "=", pitch_type))
+                    if p_throws != "All":
+                        filters.append(("p_throws", "=", p_throws))
+                    if stand != "All":
+                        filters.append(("stand", "=", stand))
+                    
+                    table = pq.read_table(
+                        str(path),
+                        columns=use_cols,
+                        filters=filters if filters else None
+                    )
+                    df = table.to_pandas()
+                else:
+                    df = pd.read_parquet(path, columns=RAW_COLS)
+                    if pitch_type != "All":
+                        df = df[df["pitch_type"] == pitch_type]
+                    if p_throws != "All":
+                        df = df[df["p_throws"] == p_throws]
+                    if stand != "All":
+                        df = df[df["stand"] == stand]
+
+                df["game_year"] = yr
+                parts.append(df)
+            except Exception:
+                continue
 
     if not parts:
         return pd.DataFrame()
@@ -2506,35 +2523,33 @@ def load_raw_for_subzones(
     full = pd.concat(parts, ignore_index=True)
     full = full[full["zone"].between(1, 14)]
 
-    # Count filter
+    # Dodatkowe filtry po wczytaniu
     if count_state != "All":
-        full["count_state"] = (full["balls"].astype(str) + "-" +
-                               full["strikes"].astype(str))
+        full["count_state"] = (
+            full["balls"].astype(str).str.strip() + "-" +
+            full["strikes"].astype(str).str.strip()
+        )
         full = full[full["count_state"] == count_state]
 
-    # Movement columns (inches)
-    full["hbrk"] = pd.to_numeric(full.get("pfx_x", np.nan), errors="coerce") * 12
-    full["vbrk"] = pd.to_numeric(full.get("pfx_z", np.nan), errors="coerce") * 12
-
-    for c in ["release_speed","release_spin_rate","launch_speed",
-               "launch_angle","estimated_woba_using_speedangle"]:
-        full[c] = pd.to_numeric(full[c], errors="coerce")
-
-    # Apply numeric filters
-    full = full[full["release_speed"].between(velo_min, velo_max).fillna(True)]
-    full = full[full["release_spin_rate"].between(spin_min, spin_max).fillna(True)]
-    full = full[full["hbrk"].between(hbrk_min, hbrk_max).fillna(True)]
-    full = full[full["vbrk"].between(vbrk_min, vbrk_max).fillna(True)]
-
-    # Event flags
-    desc = full["description"].fillna("")
-    full["is_swing"]   = desc.isin(SWING_EV).astype("int8")
-    full["is_whiff"]   = desc.isin(WHIFF_EV).astype("int8")
-    full["is_contact"] = desc.isin(CONTACT_EV).astype("int8")
-    ls = full["launch_speed"]; la = full["launch_angle"]
-    full["is_barrel"]  = ((ls >= 98) & la.between(26, 30)).fillna(False).astype("int8")
-    full["is_hh"]      = (ls >= 95).fillna(False).astype("int8")
-    full["is_gb"]      = (la < 10).fillna(False).astype("int8")
+    # Filtry numeryczne
+    if "release_speed" in full.columns:
+        full = full[
+            pd.to_numeric(full["release_speed"], errors="coerce")
+            .between(velo_min, velo_max).fillna(True)
+        ]
+    if "release_spin_rate" in full.columns:
+        full = full[
+            pd.to_numeric(full["release_spin_rate"], errors="coerce")
+            .between(spin_min, spin_max).fillna(True)
+        ]
+    if "hbrk" in full.columns or "pfx_x" in full.columns:
+        hbrk_col = "hbrk" if "hbrk" in full.columns else "pfx_x"
+        full[hbrk_col] = pd.to_numeric(full[hbrk_col], errors="coerce") * 12
+        full = full[full[hbrk_col].between(hbrk_min, hbrk_max).fillna(True)]
+    if "vbrk" in full.columns or "pfx_z" in full.columns:
+        vbrk_col = "vbrk" if "vbrk" in full.columns else "pfx_z"
+        full[vbrk_col] = pd.to_numeric(full[vbrk_col], errors="coerce") * 12
+        full = full[full[vbrk_col].between(vbrk_min, vbrk_max).fillna(True)]
 
     return full
 
