@@ -40,7 +40,7 @@ st.set_page_config(
 )
 
 # ── 3. DATA PATHS ─────────────────────────────────────────────────────
-DATA_DIR = Path(os.environ.get("STATCAST_DATA_DIR", Path(__file__).parent))
+DATA_DIR = Path("")
 
 # Poprawna definicja słownika z plikami miesięcznymi
 STATCAST_FILES = {
