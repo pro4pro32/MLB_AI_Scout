@@ -3143,31 +3143,58 @@ def draw_subzone_panel(
     bz["is_gb"]      = (la < 10).fillna(False).astype(int)
 
     # Aggregate per sub-zone
-    sg = bz.groupby("sub").agg(
-        total     = ("is_swing",  "count"),
-        swings    = ("is_swing",  "sum"),
-        whiffs    = ("is_whiff",  "sum"),
-        contacts  = ("is_contact","sum"),
-        barrels   = ("is_barrel", "sum"),
-        hard_hits = ("is_hh",     "sum"),
-        gbs       = ("is_gb",     "sum"),
-        batted    = ("launch_speed","count"),
-        avg_ev    = ("launch_speed","mean"),
-        avg_la    = ("launch_angle","mean"),
-        avg_xwoba = ("estimated_woba_using_speedangle","mean"),
-    ).reset_index()
-    sw = sg["swings"].replace(0, np.nan)
-    n  = sg["total"].replace(0, np.nan)
-    bt = sg["batted"].replace(0, np.nan)
-    sg["whiff_pct"]   = (sg["whiffs"] / sw * 100).round(1)
-    sg["swing_pct"]   = (sg["swings"] / n  * 100).round(1)
-    sg["contact_pct"] = (sg["contacts"] / sw * 100).round(1)
-    sg["barrel_pct"]  = (sg["barrels"]  / bt * 100).round(1)
-    sg["hard_hit_pct"]= (sg["hard_hits"]/ bt * 100).round(1)
-    sg["gb_pct"]      = (sg["gbs"]      / bt * 100).round(1)
-    sg["avg_ev"]      = sg["avg_ev"].round(1)
-    sg["avg_la"]      = sg["avg_la"].round(1)
-    sg["avg_xwoba"]   = sg["avg_xwoba"].round(3)
+       # Aggregate per sub-zone — bezpieczna wersja
+    agg_dict = {
+        "is_swing":   "count",
+        "is_whiff":   "sum",
+        "is_contact": "sum",
+        "is_barrel":  "sum",
+        "is_hh":      "sum",
+        "is_gb":      "sum",
+    }
+    
+    # Dodajemy tylko kolumny, które istnieją
+    if "launch_speed" in bz.columns:
+        agg_dict["launch_speed"] = ["count", "mean"]
+    if "launch_angle" in bz.columns:
+        agg_dict["launch_angle"] = "mean"
+    if "estimated_woba_using_speedangle" in bz.columns:
+        agg_dict["estimated_woba_using_speedangle"] = "mean"
+    if "hbrk" in bz.columns:
+        agg_dict["hbrk"] = "mean"
+    elif "pfx_x" in bz.columns:
+        bz["hbrk"] = pd.to_numeric(bz["pfx_x"], errors="coerce") * 12
+        agg_dict["hbrk"] = "mean"
+    if "vbrk" in bz.columns:
+        agg_dict["vbrk"] = "mean"
+    elif "pfx_z" in bz.columns:
+        bz["vbrk"] = pd.to_numeric(bz["pfx_z"], errors="coerce") * 12
+        agg_dict["vbrk"] = "mean"
+
+    sg = bz.groupby("sub").agg(agg_dict).reset_index()
+
+    # Spłaszcz kolumny po agregacji (jeśli były tuple)
+    sg.columns = [col[0] if isinstance(col, tuple) else col for col in sg.columns]
+
+    # Oblicz rate stats
+    sw = sg["is_swing"].replace(0, np.nan)   # swings
+    n  = sg["is_swing"].replace(0, np.nan)   # total (is_swing count)
+    bt = sg.get("launch_speed_count", sg["is_swing"]).replace(0, np.nan)  # batted balls
+
+    sg["whiff_pct"]   = (sg.get("is_whiff", 0) / sw * 100).round(1)
+    sg["swing_pct"]   = (sg["is_swing"] / n  * 100).round(1)
+    sg["contact_pct"] = (sg.get("is_contact", 0) / sw * 100).round(1)
+    sg["barrel_pct"]  = (sg.get("is_barrel", 0) / bt * 100).round(1)
+    sg["hard_hit_pct"]= (sg.get("is_hh", 0) / bt * 100).round(1)
+    sg["gb_pct"]      = (sg.get("is_gb", 0) / bt * 100).round(1)
+
+    if "launch_speed_mean" in sg.columns:
+        sg["avg_ev"] = sg["launch_speed_mean"].round(1)
+    if "launch_angle_mean" in sg.columns:
+        sg["avg_la"] = sg["launch_angle_mean"].round(1)
+    if "estimated_woba_using_speedangle_mean" in sg.columns:
+        sg["avg_xwoba"] = sg["estimated_woba_using_speedangle_mean"].round(3)
+
     sg = sg.set_index("sub")
 
     stat_col = STAT_COL_MAP.get(stat_label, "whiff_pct")
