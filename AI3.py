@@ -40,37 +40,24 @@ st.set_page_config(
 )
 
 # ── 3. DATA PATHS ─────────────────────────────────────────────────────
-DATA_DIR = Path("")
+# ── 3. DATA PATHS ─────────────────────────────────────────────────────
+DATA_DIR = Path(".")
 
-# Poprawna definicja słownika z plikami miesięcznymi
+# Automatyczna lista plików miesięcznych (najlepsze rozwiązanie)
 STATCAST_FILES = {
-    2024: [
-        DATA_DIR / "statcast_2024_03.parquet",
-        DATA_DIR / "statcast_2024_04.parquet",
-        DATA_DIR / "statcast_2024_05.parquet",
-        DATA_DIR / "statcast_2024_06.parquet",
-        DATA_DIR / "statcast_2024_07.parquet",
-        DATA_DIR / "statcast_2024_08.parquet",
-        DATA_DIR / "statcast_2024_09.parquet",
-        DATA_DIR / "statcast_2024_10.parquet",
-    ],
-    2025: [
-        DATA_DIR / "statcast_2025_03.parquet",
-        DATA_DIR / "statcast_2025_04.parquet",
-        DATA_DIR / "statcast_2025_05.parquet",
-        DATA_DIR / "statcast_2025_06.parquet",
-        DATA_DIR / "statcast_2025_07.parquet",
-        DATA_DIR / "statcast_2025_08.parquet",
-        DATA_DIR / "statcast_2025_09.parquet",
-        DATA_DIR / "statcast_2025_10.parquet",
-    ],
-    2026: [
-        DATA_DIR / "statcast_2026_03.parquet",
-        DATA_DIR / "statcast_2026_04.parquet",
-        DATA_DIR / "statcast_2026_05.parquet",
-        DATA_DIR / "statcast_2026_06.parquet",
-    ],
+    year: [
+        DATA_DIR / f"statcast_{year}_{month:02d}.parquet"
+        for month in range(3, 11)
+    ]
+    for year in [2024, 2025, 2026]
 }
+
+# Opcjonalnie: usuń nieistniejące pliki (bezpiecznik)
+for year in list(STATCAST_FILES.keys()):
+    STATCAST_FILES[year] = [f for f in STATCAST_FILES[year] if f.exists()]
+    if not STATCAST_FILES[year]:
+        del STATCAST_FILES[year]
+
 PITCHING_FILES = {
     2024: DATA_DIR / "pitching_stats_2024.parquet",
     2025: DATA_DIR / "pitching_stats_2025.parquet",
@@ -540,138 +527,105 @@ def build_meta_maps(years: tuple = (2024, 2025, 2026)) -> tuple:
     return batter_meta, pitcher_meta
 
 
+# ─────────────────────────────────────────────────────────────────────
+# NOWE WERSJE FUNKCJI ŁADOWANIA (zastąp stare)
+# ─────────────────────────────────────────────────────────────────────
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_pitcher_data(pitcher_id: int, year: int) -> pd.DataFrame:
-    """
-    Load all statcast rows for one pitcher in one year.
-    Uses pyarrow predicate pushdown — fast (~0.8 s first call, instant afterwards).
-    """
-    path = STATCAST_FILES.get(year)
-    if path is None or not path.exists():
+    """Ładuje dane dla jednego pitchera — teraz po miesiącach."""
+    if year not in STATCAST_FILES:
         return pd.DataFrame()
 
-    if PYARROW_OK:
-        schema_cols = set(pq.read_schema(str(path)).names)
-        use_cols    = [c for c in ENTITY_COLS if c in schema_cols]
-        table       = pq.read_table(
-            str(path),
-            columns=use_cols,
-            filters=[("pitcher", "=", pitcher_id)],
-        )
-        df = table.to_pandas()
-    else:
-        df = pd.read_parquet(path, engine="pyarrow")
-        df = df[df["pitcher"] == pitcher_id]
+    dfs = []
+    for path in STATCAST_FILES[year]:
+        if not path.exists():
+            continue
+        try:
+            if PYARROW_OK:
+                table = pq.read_table(
+                    str(path),
+                    columns=[c for c in ENTITY_COLS if c in pq.read_schema(str(path)).names],
+                    filters=[("pitcher", "=", pitcher_id)],
+                )
+                df = table.to_pandas()
+            else:
+                df = pd.read_parquet(path, columns=ENTITY_COLS)
+                df = df[df["pitcher"] == pitcher_id]
+            
+            if not df.empty:
+                dfs.append(df)
+        except Exception:
+            continue
 
-    if df.empty:
-        return df
-    return _add_flags(df)
+    if not dfs:
+        return pd.DataFrame()
+    return _add_flags(pd.concat(dfs, ignore_index=True))
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_batter_data(batter_id: int, year: int) -> pd.DataFrame:
-    """
-    Load all statcast rows for one batter in one year.
-    Uses pyarrow predicate pushdown — fast.
-    """
-    path = STATCAST_FILES.get(year)
-    if path is None or not path.exists():
+    """Analogicznie dla battera."""
+    if year not in STATCAST_FILES:
         return pd.DataFrame()
 
-    if PYARROW_OK:
-        schema_cols = set(pq.read_schema(str(path)).names)
-        use_cols    = [c for c in ENTITY_COLS if c in schema_cols]
-        table       = pq.read_table(
-            str(path),
-            columns=use_cols,
-            filters=[("batter", "=", batter_id)],
-        )
-        df = table.to_pandas()
-    else:
-        df = pd.read_parquet(path, engine="pyarrow")
-        df = df[df["batter"] == batter_id]
+    dfs = []
+    for path in STATCAST_FILES[year]:
+        if not path.exists():
+            continue
+        try:
+            if PYARROW_OK:
+                table = pq.read_table(
+                    str(path),
+                    columns=[c for c in ENTITY_COLS if c in pq.read_schema(str(path)).names],
+                    filters=[("batter", "=", batter_id)],
+                )
+                df = table.to_pandas()
+            else:
+                df = pd.read_parquet(path, columns=ENTITY_COLS)
+                df = df[df["batter"] == batter_id]
+            
+            if not df.empty:
+                dfs.append(df)
+        except Exception:
+            continue
 
-    if df.empty:
-        return df
-    return _add_flags(df)
+    if not dfs:
+        return pd.DataFrame()
+    return _add_flags(pd.concat(dfs, ignore_index=True))
 
 
 @st.cache_data(ttl=7200, show_spinner=False)
-def load_pitching_stats(years: tuple = (2024, 2025, 2026)) -> pd.DataFrame:
-    """Load Baseball Reference pitching stats from parquets (small, fast)."""
-    parts = []
-    for yr in years:
-        path = PITCHING_FILES.get(yr)
-        if path is None or not path.exists():
-            continue
-        df = pd.read_parquet(path, engine="pyarrow")
-        df["season"] = yr
-
-        # Normalise player name column (varies between years)
-        for col in ["Player", "Player▲"]:
-            if col in df.columns:
-                df["Name"] = (df[col]
-                              .astype(str)
-                              .str.replace(r"[▲\*#]", "", regex=True)
-                              .str.strip())
-                break
-        # Normalise BR ID column
-        for col in ["Player-additional", "Player▲-additional"]:
-            if col in df.columns:
-                df["bbref_id"] = df[col]
-                break
-
-        # Cast numeric columns
-        for col in ["ERA", "FIP", "WHIP", "SO9", "BB9", "HR9",
-                    "ERA+", "IP", "Age", "WAR", "SO", "BB", "H9"]:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-
-        # Derive SO9 / BB9 if absent
-        if "SO9" not in df.columns and "SO" in df.columns and "IP" in df.columns:
-            df["SO9"] = (df["SO"] / df["IP"].replace(0, np.nan)) * 9
-        if "BB9" not in df.columns and "BB" in df.columns and "IP" in df.columns:
-            df["BB9"] = (df["BB"] / df["IP"].replace(0, np.nan)) * 9
-
-        parts.append(df)
-
-    if not parts:
-        return pd.DataFrame()
-    return pd.concat(parts, ignore_index=True)
-
-
-@st.cache_data(ttl=3600, show_spinner="⏳  Pre-computing zone statistics (first run only — ~20 s)…")
 def precompute_zone_stats(years: tuple = (2024, 2025, 2026)) -> pd.DataFrame:
-    """
-    Aggregate all statcast data into zone-level stats for Tab 1.
-    Runs once then cached indefinitely.
-    """
+    """Precompute — teraz po miesiącach."""
     parts = []
     for yr in years:
-        path = STATCAST_FILES.get(yr)
-        if path is None or not path.exists():
+        if yr not in STATCAST_FILES:
             continue
-        # Only load columns we need for aggregation
-        agg_cols = [
-            "pitch_type", "zone", "stand", "p_throws", "balls", "strikes",
-            "description", "launch_speed", "launch_angle",
-            "estimated_woba_using_speedangle",
-        ]
-        if PYARROW_OK:
-            schema_cols = set(pq.read_schema(str(path)).names)
-            use_cols    = [c for c in agg_cols if c in schema_cols]
-            df = pd.read_parquet(path, engine="pyarrow", columns=use_cols)
-        else:
-            df = pd.read_parquet(path, engine="pyarrow", columns=agg_cols)
-        df["game_year"] = yr
-        df = _add_flags(df)
-        parts.append(df)
+        for path in STATCAST_FILES[yr]:
+            if not path.exists():
+                continue
+            agg_cols = [
+                "pitch_type", "zone", "stand", "p_throws", "balls", "strikes",
+                "description", "launch_speed", "launch_angle",
+                "estimated_woba_using_speedangle",
+            ]
+            try:
+                if PYARROW_OK:
+                    use_cols = [c for c in agg_cols if c in pq.read_schema(str(path)).names]
+                    df = pd.read_parquet(path, columns=use_cols)
+                else:
+                    df = pd.read_parquet(path, columns=agg_cols)
+                df["game_year"] = yr
+                df = _add_flags(df)
+                parts.append(df)
+            except Exception:
+                continue
 
     if not parts:
         return pd.DataFrame()
 
     full = pd.concat(parts, ignore_index=True)
-    full = full[full["zone"].between(1, 14)]
 
     grp = full.groupby(
         ["game_year", "zone", "pitch_type", "p_throws", "stand", "count_state"],
