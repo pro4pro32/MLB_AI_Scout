@@ -457,72 +457,77 @@ def _add_flags(df: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(ttl=7200, show_spinner=False)
 def build_meta_maps(years: tuple = (2024, 2025, 2026)) -> tuple:
     """
-    Build batter/pitcher name & team maps in a single fast pass per year.
-    Returns (batter_meta, pitcher_meta) where:
-      batter_meta  : {int_id: {"name": str, "team": str, "stand": str}}
-      pitcher_meta : {int_id: {"name": str, "hand": str}}
+    Buduje meta dane (batter + pitcher) — teraz obsługuje listę miesięcznych plików.
     """
     batter_meta: dict  = {}
     pitcher_meta: dict = {}
 
     for yr in years:
-        path = STATCAST_FILES.get(yr)
-        if path is None or not path.exists():
+        if yr not in STATCAST_FILES:
             continue
+        
+        # Teraz iterujemy po miesiącach
+        for path in STATCAST_FILES[yr]:
+            if not path.exists():
+                continue
 
-        # Load only the meta columns — very fast
-        meta_cols = ["batter", "pitcher", "player_name", "des",
-                     "stand", "p_throws", "home_team", "away_team", "inning_topbot"]
-        df = pd.read_parquet(path, engine="pyarrow", columns=meta_cols)
+            # Load only the meta columns — bardzo szybkie
+            meta_cols = ["batter", "pitcher", "player_name", "des",
+                         "stand", "p_throws", "home_team", "away_team", "inning_topbot"]
+            
+            try:
+                df = pd.read_parquet(path, engine="pyarrow", columns=meta_cols)
+            except Exception:
+                continue
 
-        # ── Pitcher meta (player_name = "Last, First") ─────────────
-        pm = (df[["pitcher", "player_name", "p_throws"]]
-              .dropna(subset=["player_name"])
-              .drop_duplicates("pitcher"))
-        for _, row in pm.iterrows():
-            pid = int(row["pitcher"])
-            if pid not in pitcher_meta:
-                pitcher_meta[pid] = {
-                    "name": str(row["player_name"]),
-                    "hand": str(row["p_throws"]),
-                }
+            # ── Pitcher meta ─────────────────────────────────────
+            pm = (df[["pitcher", "player_name", "p_throws"]]
+                  .dropna(subset=["player_name"])
+                  .drop_duplicates("pitcher"))
+            for _, row in pm.iterrows():
+                pid = int(row["pitcher"])
+                if pid not in pitcher_meta:
+                    pitcher_meta[pid] = {
+                        "name": str(row["player_name"]),
+                        "hand": str(row["p_throws"]),
+                    }
 
-        # ── Batter team ─────────────────────────────────────────────
-        df["batter_team"] = np.where(
-            df["inning_topbot"] == "Top",
-            df["away_team"],
-            df["home_team"],
-        )
-        bm = (df[["batter", "stand", "batter_team"]]
-              .dropna(subset=["batter"])
-              .groupby("batter")
-              .first()
-              .reset_index())
-        for _, row in bm.iterrows():
-            bid = int(row["batter"])
-            if bid not in batter_meta:
-                batter_meta[bid] = {
-                    "name":  None,
-                    "team":  str(row.get("batter_team", "?")),
-                    "stand": str(row.get("stand", "?")),
-                }
+            # ── Batter team + name ───────────────────────────────
+            df["batter_team"] = np.where(
+                df["inning_topbot"] == "Top",
+                df["away_team"],
+                df["home_team"],
+            )
+            bm = (df[["batter", "stand", "batter_team"]]
+                  .dropna(subset=["batter"])
+                  .groupby("batter")
+                  .first()
+                  .reset_index())
+            for _, row in bm.iterrows():
+                bid = int(row["batter"])
+                if bid not in batter_meta:
+                    batter_meta[bid] = {
+                        "name":  None,
+                        "team":  str(row.get("batter_team", "?")),
+                        "stand": str(row.get("stand", "?")),
+                    }
 
-        # ── Batter name from 'des' field ─────────────────────────────
-        des_df = df[df["des"].notna() & (df["des"].str.len() > 5)]
-        first_des = des_df.groupby("batter")["des"].first()
-        for bid_raw, des in first_des.items():
-            bid = int(bid_raw)
-            if batter_meta.get(bid, {}).get("name"):
-                continue          # already have name
-            m = _VERB_PAT.search(str(des))
-            if m:
-                name_part = des[: m.start()].strip()
-                words = name_part.split()
-                if 2 <= len(words) <= 4:
-                    if bid not in batter_meta:
-                        batter_meta[bid] = {"name": name_part, "team": "?", "stand": "?"}
-                    else:
-                        batter_meta[bid]["name"] = name_part
+            # ── Batter name from 'des' field ─────────────────────
+            des_df = df[df["des"].notna() & (df["des"].str.len() > 5)]
+            first_des = des_df.groupby("batter")["des"].first()
+            for bid_raw, des in first_des.items():
+                bid = int(bid_raw)
+                if batter_meta.get(bid, {}).get("name"):
+                    continue
+                m = _VERB_PAT.search(str(des))
+                if m:
+                    name_part = des[: m.start()].strip()
+                    words = name_part.split()
+                    if 2 <= len(words) <= 4:
+                        if bid not in batter_meta:
+                            batter_meta[bid] = {"name": name_part, "team": "?", "stand": "?"}
+                        else:
+                            batter_meta[bid]["name"] = name_part
 
     return batter_meta, pitcher_meta
 
