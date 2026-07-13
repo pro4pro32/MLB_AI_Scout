@@ -599,6 +599,56 @@ def load_batter_data(batter_id: int, year: int) -> pd.DataFrame:
         return pd.DataFrame()
     return _add_flags(pd.concat(dfs, ignore_index=True))
 
+@st.cache_data(ttl=7200, show_spinner=False)
+def load_pitching_stats(years: tuple = (2024, 2025, 2026)) -> pd.DataFrame:
+    """Load Baseball Reference pitching stats — nie zmieniło się dużo."""
+    parts = []
+    for yr in years:
+        path = PITCHING_FILES.get(yr)
+        if path is None or not path.exists():
+            continue
+        try:
+            df = pd.read_parquet(path, engine="pyarrow")
+            df["season"] = yr
+
+            # Normalise player name column
+            for col in ["Player", "Player▲", "Name"]:
+                if col in df.columns:
+                    df["Name"] = (df[col]
+                                  .astype(str)
+                                  .str.replace(r"[▲\*#]", "", regex=True)
+                                  .str.strip())
+                    break
+
+            # Normalise BR ID
+            for col in ["Player-additional", "Player▲-additional", "bbref_id"]:
+                if col in df.columns:
+                    df["bbref_id"] = df[col]
+                    break
+
+            # Cast numeric columns
+            numeric_cols = ["ERA", "FIP", "WHIP", "SO9", "BB9", "HR9", "ERA+", 
+                           "IP", "Age", "WAR", "SO", "BB", "H9", "H"]
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+
+            # Derive SO9 / BB9 if missing
+            if "SO9" not in df.columns and "SO" in df.columns and "IP" in df.columns:
+                df["SO9"] = (df["SO"] / df["IP"].replace(0, np.nan)) * 9
+            if "BB9" not in df.columns and "BB" in df.columns and "IP" in df.columns:
+                df["BB9"] = (df["BB"] / df["IP"].replace(0, np.nan)) * 9
+
+            parts.append(df)
+        except Exception as e:
+            st.warning(f"Błąd przy wczytywaniu pitching_stats_{yr}: {e}")
+            continue
+
+    if not parts:
+        return pd.DataFrame()
+    
+    return pd.concat(parts, ignore_index=True)
+
 
 @st.cache_data(ttl=7200, show_spinner=False)
 def precompute_zone_stats(years: tuple = (2024, 2025, 2026)) -> pd.DataFrame:
