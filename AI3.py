@@ -42,10 +42,34 @@ st.set_page_config(
 # ── 3. DATA PATHS ─────────────────────────────────────────────────────
 DATA_DIR = Path(os.environ.get("STATCAST_DATA_DIR", Path(__file__).parent))
 
+# Poprawna definicja słownika z plikami miesięcznymi
 STATCAST_FILES = {
-    2024: DATA_DIR / "statcast_2024_03.parquet", "statcast_2024_04.parquet", "statcast_2024_05.parquet", "statcast_2024_06.parquet", "statcast_2024_07.parquet", "statcast_2024_08.parquet", "statcast_2024_09.parquet", "statcast_2024_10.parquet",
-    2025: DATA_DIR / "statcast_2025_03.parquet", "statcast_2025_04.parquet", "statcast_2025_05.parquet", "statcast_2025_06.parquet", "statcast_2025_07.parquet", "statcast_2025_08.parquet", "statcast_2025_09.parquet", "statcast_2025_10.parquet",
-    2026: DATA_DIR / "statcast_2026_03.parquet", "statcast_2026_04.parquet", "statcast_2026_05.parquet", "statcast_2026_06.parquet",  
+    2024: [
+        DATA_DIR / "statcast_2024_03.parquet",
+        DATA_DIR / "statcast_2024_04.parquet",
+        DATA_DIR / "statcast_2024_05.parquet",
+        DATA_DIR / "statcast_2024_06.parquet",
+        DATA_DIR / "statcast_2024_07.parquet",
+        DATA_DIR / "statcast_2024_08.parquet",
+        DATA_DIR / "statcast_2024_09.parquet",
+        DATA_DIR / "statcast_2024_10.parquet",
+    ],
+    2025: [
+        DATA_DIR / "statcast_2025_03.parquet",
+        DATA_DIR / "statcast_2025_04.parquet",
+        DATA_DIR / "statcast_2025_05.parquet",
+        DATA_DIR / "statcast_2025_06.parquet",
+        DATA_DIR / "statcast_2025_07.parquet",
+        DATA_DIR / "statcast_2025_08.parquet",
+        DATA_DIR / "statcast_2025_09.parquet",
+        DATA_DIR / "statcast_2025_10.parquet",
+    ],
+    2026: [
+        DATA_DIR / "statcast_2026_03.parquet",
+        DATA_DIR / "statcast_2026_04.parquet",
+        DATA_DIR / "statcast_2026_05.parquet",
+        DATA_DIR / "statcast_2026_06.parquet",
+    ],
 }
 PITCHING_FILES = {
     2024: DATA_DIR / "pitching_stats_2024.parquet",
