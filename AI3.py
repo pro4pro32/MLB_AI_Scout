@@ -435,22 +435,36 @@ _VERB_PAT = re.compile(
 
 
 def _add_flags(df: pd.DataFrame) -> pd.DataFrame:
-    """Add binary outcome flags to a statcast DataFrame in-place."""
+    """Add binary outcome flags — bezpieczna wersja (obsługuje brakujące kolumny)."""
+    if df.empty:
+        return df
+
+    df = df.copy()
+
+    # Description-based flags
     desc = df["description"].fillna("")
     df["is_swing"]   = desc.isin(SWING_EV).astype("int8")
     df["is_whiff"]   = desc.isin(WHIFF_EV).astype("int8")
     df["is_contact"] = desc.isin(CONTACT_EV).astype("int8")
-    ls = pd.to_numeric(df["launch_speed"], errors="coerce")
-    la = pd.to_numeric(df["launch_angle"], errors="coerce")
-    df["is_barrel"]  = ((ls >= 98) & la.between(26, 30)).fillna(False).astype("int8")
-    df["is_hh"]      = (ls >= 95).fillna(False).astype("int8")
-    df["is_gb"]      = (la < 10).fillna(False).astype("int8")
-    df["hbrk"]       = pd.to_numeric(df.get("pfx_x", np.nan), errors="coerce") * 12
-    df["vbrk"]       = pd.to_numeric(df.get("pfx_z", np.nan), errors="coerce") * 12
+
+    # Launch metrics
+    ls = pd.to_numeric(df.get("launch_speed", pd.Series(dtype=float)), errors="coerce")
+    la = pd.to_numeric(df.get("launch_angle",  pd.Series(dtype=float)), errors="coerce")
+
+    df["is_barrel"] = ((ls >= 98) & la.between(26, 30)).fillna(False).astype("int8")
+    df["is_hh"]     = (ls >= 95).fillna(False).astype("int8")
+    df["is_gb"]     = (la < 10).fillna(False).astype("int8")
+
+    # Movement
+    df["hbrk"] = pd.to_numeric(df.get("pfx_x", pd.Series(dtype=float)), errors="coerce") * 12
+    df["vbrk"] = pd.to_numeric(df.get("pfx_z", pd.Series(dtype=float)), errors="coerce") * 12
+
+    # Count state
     df["count_state"] = (
         df["balls"].astype(str).str.strip() + "-" +
         df["strikes"].astype(str).str.strip()
     )
+
     return df
 
 
