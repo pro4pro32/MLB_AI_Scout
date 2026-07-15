@@ -1454,22 +1454,36 @@ def analyze_batter(df: pd.DataFrame, filters: dict | None = None) -> dict:
             ) if not pd.isna(r["zone"]) else "??",
             axis=1,
         )
-        sub_stats = bz.groupby(["zone", "sub_zone"]).agg(
-            total     = ("is_swing",  "count"),
-            swings    = ("is_swing",  "sum"),
-            whiffs    = ("is_whiff",  "sum"),
-            contacts  = ("is_contact","sum"),
-            avg_xwoba = ("estimated_woba_using_speedangle","mean"),
-            avg_ev    = ("launch_speed","mean"),
-            avg_la    = ("launch_angle","mean"),
-        ).reset_index()
-        sw = sub_stats["swings"].replace(0, np.nan)
-        n  = sub_stats["total"].replace(0, np.nan)
-        sub_stats["whiff_pct"] = (sub_stats["whiffs"] / sw * 100).round(1)
-        sub_stats["swing_pct"] = (sub_stats["swings"] / n  * 100).round(1)
-        sub_stats["avg_xwoba"] = sub_stats["avg_xwoba"].round(3)
-        sub_stats["avg_ev"]    = sub_stats["avg_ev"].round(1)
-        sub_stats["avg_la"]    = sub_stats["avg_la"].round(1)
+        # Czysta agregacja bez multi-level columns
+    sg = bz.groupby("sub", as_index=False).agg(
+        total     = ("is_swing",  "count"),
+        swings    = ("is_swing",  "sum"),
+        whiffs    = ("is_whiff",  "sum"),
+        contacts  = ("is_contact","sum"),
+        barrels   = ("is_barrel", "sum"),
+        hhs       = ("is_hh",     "sum"),
+        gbs       = ("is_gb",     "sum"),
+        batted    = ("launch_speed","count"),
+        avg_ev    = ("launch_speed","mean"),
+        avg_la    = ("launch_angle","mean"),
+        avg_xwoba = ("estimated_woba_using_speedangle","mean"),
+    )
+
+    sw = sg["swings"].replace(0, np.nan)
+    n  = sg["total"].replace(0, np.nan)
+    bt_sz = sg["batted"].replace(0, np.nan)
+
+    sg["whiff_pct"]   = (sg["whiffs"]  / sw    * 100).round(1)
+    sg["swing_pct"]   = (sg["swings"]  / n     * 100).round(1)
+    sg["contact_pct"] = (sg["contacts"]/ sw    * 100).round(1)
+    sg["barrel_pct"]  = (sg["barrels"] / bt_sz * 100).round(1)
+    sg["hard_hit_pct"]= (sg["hhs"]     / bt_sz * 100).round(1)
+    sg["gb_pct"]      = (sg["gbs"]     / bt_sz * 100).round(1)
+    sg["avg_ev"]      = sg["avg_ev"].round(1)
+    sg["avg_la"]      = sg["avg_la"].round(1)
+    sg["avg_xwoba"]   = sg["avg_xwoba"].round(3)
+
+    sg = sg.set_index("sub")
 
     # ── Pitch-type stats ─────────────────────────────────────────────
     pt_agg = dff.groupby("pitch_type").agg(
@@ -2874,38 +2888,44 @@ with tab_main:
                 )
 
         if not _raw_for_sz.empty:
-            fig_sz = draw_subzone_detail(_raw_for_sz[_raw_for_sz["zone"] == sz_zone_m], sz_zone_m)
+            # draw_subzone_panel operuje na surowych danych (plate_x/plate_z)
+            fig_sz = draw_subzone_panel(_raw_for_sz, sz_zone_m, sz_stat_m)
             st.pyplot(fig_sz, use_container_width=True)
             plt.close(fig_sz)
 
-            # Quick table
+            # Quick stats table
             _sz_data = _raw_for_sz[_raw_for_sz["zone"] == sz_zone_m].copy()
             if not _sz_data.empty and "plate_x" in _sz_data.columns:
                 _sz_data["sub"] = _sz_data.apply(
-                    lambda r: classify_subzone(safe_num(r["plate_x"]), safe_num(r["plate_z"]), sz_zone_m),
-                    axis=1
+                    lambda r: classify_subzone(
+                        safe_num(r["plate_x"]),
+                        safe_num(r["plate_z"]),
+                        sz_zone_m,
+                    ), axis=1,
                 )
-                _sz_tbl = _sz_data.groupby("sub").agg(
-                    Pitches=("is_swing","count"),
-                    Swing_p=("is_swing","mean"),
-                    Whiff_p=("is_whiff","mean"),
-                    xwOBA=("estimated_woba_using_speedangle","mean"),
-                    Spin=("release_spin_rate","mean"),
-                    HBreak=("hbrk","mean"),
-                    VBreak=("vbrk","mean"),
-                ).reset_index()
+                _sz_tbl = _sz_data.groupby("sub", as_index=False).agg(
+                    Pitches = ("is_swing",  "count"),
+                    Swing_p = ("is_swing",  "mean"),
+                    Whiff_p = ("is_whiff",  "mean"),
+                    xwOBA   = ("estimated_woba_using_speedangle","mean"),
+                    Spin    = ("release_spin_rate","mean"),
+                    HBreak  = ("hbrk","mean"),
+                    VBreak  = ("vbrk","mean"),
+                )
                 _sz_tbl["Swing%"] = (_sz_tbl["Swing_p"]*100).round(1)
                 _sz_tbl["Whiff%"] = (_sz_tbl["Whiff_p"]*100).round(1)
-                _sz_tbl["xwOBA"] = _sz_tbl["xwOBA"].round(3)
-                _sz_tbl["Spin"] = _sz_tbl["Spin"].round(0)
+                _sz_tbl["xwOBA"]  = _sz_tbl["xwOBA"].round(3)
+                _sz_tbl["Spin"]   = _sz_tbl["Spin"].round(0)
                 _sz_tbl["HBreak"] = _sz_tbl["HBreak"].round(1)
                 _sz_tbl["VBreak"] = _sz_tbl["VBreak"].round(1)
-
                 st.dataframe(
                     _sz_tbl[["sub","Pitches","Swing%","Whiff%","xwOBA","Spin","HBreak","VBreak"]]
-                    .rename(columns={"sub":"Quad"}).set_index("Quad"),
-                    use_container_width=True, height=200
+                    .rename(columns={"sub":"Quad","HBreak":"H-Brk\"","VBreak":"V-Brk\""})
+                    .set_index("Quad"),
+                    use_container_width=True, height=200,
                 )
+        else:
+            st.info("No data for sub-zone analysis with current filters.")
 
     # Zone summary table + Comparison (możesz zostawić resztę jak była)
 
@@ -4307,25 +4327,35 @@ def build_batter_team_roster(
                 roster[season][team] = sorted(set(roster[season][team]))
         return roster
 
-    # ── Fallback: scan statcast meta columns ──────────────────────────
+    # ── Fallback: scan statcast meta columns (monthly files) ──────────
     for yr in all_years:
-        path = STATCAST_FILES.get(yr)
-        if path is None or not path.exists():
+        if yr not in STATCAST_FILES:
             continue
-        meta_cols = ["batter", "home_team", "away_team", "inning_topbot"]
-        if PYARROW_OK:
-            schema_cols = set(pq.read_schema(str(path)).names)
-            use_cols    = [c for c in meta_cols if c in schema_cols]
-        else:
-            use_cols = meta_cols
-        df = pd.read_parquet(path, engine="pyarrow", columns=use_cols)
+        parts_bt = []
+        for path in STATCAST_FILES[yr]:
+            if not path.exists():
+                continue
+            try:
+                meta_cols = ["batter","home_team","away_team","inning_topbot"]
+                if PYARROW_OK:
+                    sc = set(pq.read_schema(str(path)).names)
+                    use_cols = [c for c in meta_cols if c in sc]
+                else:
+                    use_cols = meta_cols
+                df_tmp = pd.read_parquet(path, engine="pyarrow", columns=use_cols)
+                parts_bt.append(df_tmp)
+            except Exception:
+                continue
+
+        if not parts_bt:
+            continue
+        df = pd.concat(parts_bt, ignore_index=True)
         df["batter_team"] = np.where(
             df["inning_topbot"] == "Top",
             df["away_team"],
             df["home_team"],
         )
-        # One row per (batter, team) — batter appeared for this team
-        bt = (df[["batter", "batter_team"]]
+        bt = (df[["batter","batter_team"]]
               .dropna(subset=["batter_team"])
               .drop_duplicates())
         for _, row in bt.iterrows():
