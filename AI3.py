@@ -2794,6 +2794,122 @@ def draw_all_subzones_grid(
 # ─────────────────────────────────────────────────────────────────────
 # TAB 1 — MAIN DASHBOARD (clean + collapsible sub-zones)
 # ─────────────────────────────────────────────────────────────────────
+# ── Dodaj tu przed with tab_main: ─────────────────────────────────
+def draw_subzone_panel(raw_df: pd.DataFrame, zone: int,
+                       stat_label: str = "Whiff %") -> plt.Figure:
+    """2×2 sub-zone panel from raw data — inline, no popup."""
+    STAT_COL_MAP = {
+        "Whiff %":"whiff_pct","Swing %":"swing_pct","Contact %":"contact_pct",
+        "xwOBA":"avg_xwoba","Exit Velo":"avg_ev","Launch Angle":"avg_la",
+        "Barrel %":"barrel_pct","Hard Hit %":"hard_hit_pct","GB %":"gb_pct",
+    }
+    FMT_MAP = {
+        "Whiff %":"{:.1f}%","Swing %":"{:.1f}%","Contact %":"{:.1f}%",
+        "xwOBA":"{:.3f}","Exit Velo":"{:.1f}","Launch Angle":"{:.1f}°",
+        "Barrel %":"{:.1f}%","Hard Hit %":"{:.1f}%","GB %":"{:.1f}%",
+    }
+    RANGE_MAP = {
+        "Whiff %":(0,70),"Swing %":(10,90),"Contact %":(30,100),
+        "xwOBA":(0.10,0.55),"Exit Velo":(70,98),"Launch Angle":(-15,45),
+        "Barrel %":(0,25),"Hard Hit %":(0,60),"GB %":(0,80),
+    }
+    cmap = sns.color_palette("YlOrRd", as_cmap=True)
+    vmin, vmax = RANGE_MAP.get(stat_label, (0, 100))
+    fmt = FMT_MAP.get(stat_label, "{:.1f}")
+    stat_col = STAT_COL_MAP.get(stat_label, "whiff_pct")
+
+    bz = raw_df[raw_df["zone"] == zone].copy()
+    if bz.empty:
+        fig, ax = plt.subplots(figsize=(4, 4))
+        fig.patch.set_facecolor("#111621"); ax.axis("off")
+        ax.text(0.5, 0.5, f"No data\nfor Zone {zone}",
+                ha="center", va="center", color="#8892a4", fontsize=12)
+        return fig
+
+    bz["sub"] = bz.apply(
+        lambda r: classify_subzone(
+            float(r["plate_x"]) if not pd.isna(r.get("plate_x")) else 0.0,
+            float(r["plate_z"]) if not pd.isna(r.get("plate_z")) else 2.5,
+            zone,
+        ), axis=1,
+    )
+    desc = bz["description"].fillna("")
+    bz["is_swing"]   = desc.isin(SWING_EV).astype(int)
+    bz["is_whiff"]   = desc.isin(WHIFF_EV).astype(int)
+    bz["is_contact"] = desc.isin(CONTACT_EV).astype(int)
+    ls = pd.to_numeric(bz["launch_speed"], errors="coerce")
+    la = pd.to_numeric(bz["launch_angle"], errors="coerce")
+    bz["is_barrel"] = ((ls >= 98) & la.between(26,30)).fillna(False).astype(int)
+    bz["is_hh"]     = (ls >= 95).fillna(False).astype(int)
+    bz["is_gb"]     = (la < 10).fillna(False).astype(int)
+    if "hbrk" not in bz.columns and "pfx_x" in bz.columns:
+        bz["hbrk"] = pd.to_numeric(bz["pfx_x"], errors="coerce") * 12
+    if "vbrk" not in bz.columns and "pfx_z" in bz.columns:
+        bz["vbrk"] = pd.to_numeric(bz["pfx_z"], errors="coerce") * 12
+
+    sg = bz.groupby("sub", as_index=False).agg(
+        total     = ("is_swing",   "count"),
+        swings    = ("is_swing",   "sum"),
+        whiffs    = ("is_whiff",   "sum"),
+        contacts  = ("is_contact", "sum"),
+        barrels   = ("is_barrel",  "sum"),
+        hhs       = ("is_hh",      "sum"),
+        gbs       = ("is_gb",      "sum"),
+        batted    = ("launch_speed","count"),
+        avg_ev    = ("launch_speed","mean"),
+        avg_la    = ("launch_angle","mean"),
+        avg_xwoba = ("estimated_woba_using_speedangle","mean"),
+    )
+    sw = sg["swings"].replace(0, np.nan)
+    n  = sg["total"].replace(0, np.nan)
+    bt = sg["batted"].replace(0, np.nan)
+    sg["whiff_pct"]   = (sg["whiffs"]  / sw * 100).round(1)
+    sg["swing_pct"]   = (sg["swings"]  / n  * 100).round(1)
+    sg["contact_pct"] = (sg["contacts"]/ sw * 100).round(1)
+    sg["barrel_pct"]  = (sg["barrels"] / bt * 100).round(1)
+    sg["hard_hit_pct"]= (sg["hhs"]     / bt * 100).round(1)
+    sg["gb_pct"]      = (sg["gbs"]     / bt * 100).round(1)
+    sg["avg_ev"]      = sg["avg_ev"].round(1)
+    sg["avg_la"]      = sg["avg_la"].round(1)
+    sg["avg_xwoba"]   = sg["avg_xwoba"].round(3)
+    sg = sg.set_index("sub")
+
+    positions = {"TL":(0,1),"TR":(1,1),"BL":(0,0),"BR":(1,0)}
+    fig, axes = plt.subplots(2, 2, figsize=(5, 5))
+    fig.patch.set_facecolor("#0b0f17")
+    fig.suptitle(f"Zone {zone} — {stat_label}",
+                 color="#f0f6ff", fontsize=10, fontweight="700", y=1.01)
+    for quad, (ci, ri) in positions.items():
+        ax = axes[1 - ri][ci]
+        ax.set_facecolor("#111621"); ax.set_xlim(0,1); ax.set_ylim(0,1); ax.axis("off")
+        if quad in sg.index:
+            row = sg.loc[quad]
+            val = row.get(stat_col, np.nan)
+            n_p = int(row.get("total", 0))
+            if not pd.isna(val) and n_p > 0:
+                colour = cmap(np.clip((val - vmin)/(vmax - vmin), 0, 1))
+                ax.add_patch(plt.Rectangle((0.05,0.05),0.9,0.9,
+                    facecolor=colour, edgecolor="#1e2535", linewidth=2.0))
+                ax.text(0.5, 0.60, fmt.format(val), ha="center", va="center",
+                        fontsize=15, fontweight="800", color="#111111")
+                ax.text(0.5, 0.32, quad, ha="center", va="center",
+                        fontsize=9, fontweight="600", color="#333333")
+                ax.text(0.5, 0.14, f"n={n_p}", ha="center", va="center",
+                        fontsize=7.5, color="#555555")
+            else:
+                ax.add_patch(plt.Rectangle((0.05,0.05),0.9,0.9,
+                    facecolor="#1c2230", edgecolor="#1e2535", linewidth=1.5))
+                ax.text(0.5, 0.5, f"{quad}\nno data", ha="center", va="center",
+                        fontsize=8, color="#4a5568")
+        else:
+            ax.add_patch(plt.Rectangle((0.05,0.05),0.9,0.9,
+                facecolor="#1c2230", edgecolor="#1e2535", linewidth=1.5))
+            ax.text(0.5, 0.5, f"{quad}\nno data", ha="center", va="center",
+                    fontsize=8, color="#4a5568")
+    plt.tight_layout(pad=0.5)
+    return fig
+
+
 with tab_main:
     st.markdown('<div class="sec-hdr">📊 Zone Heatmap — All Pitches</div>',
                 unsafe_allow_html=True)
@@ -2874,6 +2990,11 @@ with tab_main:
             list(range(1,10)),
             format_func=lambda z: f"Zone {z}",
             key="sz_zone_m_main"
+        )
+        sz_stat_m = st.selectbox(
+            "Sub-zone statistic:",
+            STAT_LABELS,
+            key="sz_stat_m_main",
         )
 
         if _has_mvmt and '_raw_m' in locals() and not _raw_m.empty:
