@@ -3015,56 +3015,53 @@ with tab_main:
             plt.close(fig_sz)
 
             # Quick stats table
-           # ── Sub-zone quick stats (bezpieczna wersja) ─────────────────────
-_sz_data = _bff_zone.copy()
+            # ── Sub-zone quick stats (bezpieczna wersja) ─────────────────────
+            _sz_data = _bff_zone.copy()
 
-# Upewnij się, że flagi istnieją
-if "is_swing" not in _sz_data.columns:
-    _sz_data = _add_flags(_sz_data)
+            # Upewnij się, że flagi są dodane
+            if "is_swing" not in _sz_data.columns:
+                _sz_data = _add_flags(_sz_data)
 
-# Agregacja z bezpiecznym sprawdzaniem kolumn
-agg_dict = {
-    "Pitches": ("is_swing", "count"),
-}
+            # Agregacja
+            agg_dict = {"Pitches": ("is_swing", "count")}
 
-if "is_swing" in _sz_data.columns:
-    agg_dict["Swing_p"] = ("is_swing", "mean")
-if "is_whiff" in _sz_data.columns:
-    agg_dict["Whiff_p"] = ("is_whiff", "mean")
-if "is_contact" in _sz_data.columns:
-    agg_dict["Contact_p"] = ("is_contact", "mean")
-if "estimated_woba_using_speedangle" in _sz_data.columns:
-    agg_dict["xwOBA"] = ("estimated_woba_using_speedangle", "mean")
-if "launch_speed" in _sz_data.columns:
-    agg_dict["EV"] = ("launch_speed", "mean")
-if "launch_angle" in _sz_data.columns:
-    agg_dict["LA"] = ("launch_angle", "mean")
-if "vbrk" in _sz_data.columns:
-    agg_dict["VBreak"] = ("vbrk", "mean")
-if "hbrk" in _sz_data.columns:
-    agg_dict["HBreak"] = ("hbrk", "mean")
+            if "is_swing" in _sz_data.columns:
+                agg_dict["Swing_p"] = ("is_swing", "mean")
+            if "is_whiff" in _sz_data.columns:
+                agg_dict["Whiff_p"] = ("is_whiff", "mean")
+            if "estimated_woba_using_speedangle" in _sz_data.columns:
+                agg_dict["xwOBA"] = ("estimated_woba_using_speedangle", "mean")
+            if "launch_speed" in _sz_data.columns:
+                agg_dict["EV"] = ("launch_speed", "mean")
+            if "launch_angle" in _sz_data.columns:
+                agg_dict["LA"] = ("launch_angle", "mean")
+            if "vbrk" in _sz_data.columns:
+                agg_dict["VBreak"] = ("vbrk", "mean")
+            if "hbrk" in _sz_data.columns:
+                agg_dict["HBreak"] = ("hbrk", "mean")
 
-_sz_tbl = _sz_data.groupby("sub", as_index=False).agg(**agg_dict)
+            _sz_tbl = _sz_data.groupby("sub", as_index=False).agg(**agg_dict)
 
-# Oblicz procenty
-if "Swing_p" in _sz_tbl.columns:
-    _sz_tbl["Swing%"] = (_sz_tbl["Swing_p"] * 100).round(1)
-if "Whiff_p" in _sz_tbl.columns:
-    _sz_tbl["Whiff%"] = (_sz_tbl["Whiff_p"] * 100).round(1)
+            # Oblicz procenty
+            if "Swing_p" in _sz_tbl.columns:
+                _sz_tbl["Swing%"] = (_sz_tbl["Swing_p"] * 100).round(1)
+            if "Whiff_p" in _sz_tbl.columns:
+                _sz_tbl["Whiff%"] = (_sz_tbl["Whiff_p"] * 100).round(1)
 
-# Wybierz kolumny do wyświetlenia
-final_cols = ["sub", "Pitches"]
-for c in ["Swing%", "Whiff%", "xwOBA", "EV", "LA", "HBreak", "VBreak"]:
-    if c in _sz_tbl.columns or c.replace("%","")+"_p" in _sz_tbl.columns:
-        final_cols.append(c)
+            # Wybierz kolumny
+            final_cols = ["sub", "Pitches"]
+            for c in ["Swing%", "Whiff%", "xwOBA", "EV", "LA", "HBreak", "VBreak"]:
+                if c in _sz_tbl.columns:
+                    final_cols.append(c)
 
-_sz_tbl = _sz_tbl[final_cols].rename(columns={"sub": "Quadrant"})
+            _sz_tbl = _sz_tbl[final_cols].rename(columns={"sub": "Quadrant"})
 
-st.dataframe(
-    _sz_tbl.set_index("Quadrant"),
-    use_container_width=True,   # lub width="stretch"
-    height=190,
-)
+            st.dataframe(
+                _sz_tbl.set_index("Quadrant"),
+                width="stretch",
+                height=190,
+            )
+           
 
     # Zone summary table + Comparison (możesz zostawić resztę jak była)
 
