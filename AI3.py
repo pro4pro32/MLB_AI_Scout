@@ -3014,6 +3014,8 @@ with tab_main:
             st.pyplot(fig_sz, use_container_width=True)
             plt.close(fig_sz)
 
+
+            _bff_zone = _add_flags(_bff_zone.copy())
             # Quick stats table
             # ── Sub-zone quick stats (bezpieczna wersja) ─────────────────────
             _sz_data = _bff_zone.copy()
