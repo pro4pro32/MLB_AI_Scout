@@ -3017,52 +3017,57 @@ with tab_main:
 
             _bff_zone = _add_flags(_bff_zone.copy())
             # Quick stats table
-            # ── Sub-zone quick stats (bezpieczna wersja) ─────────────────────
-            _sz_data = _bff_zone.copy()
+                       # ── Sub-zone quick stats ─────────────────────────────────────
+            _sz_data = _bff.copy()   # <-- ZMIANA: używamy _bff zamiast _bff_zone
 
-            # Upewnij się, że flagi są dodane
+            # Dodaj flagi jeśli ich nie ma
             if "is_swing" not in _sz_data.columns:
                 _sz_data = _add_flags(_sz_data)
 
-            # Agregacja
-            agg_dict = {"Pitches": ("is_swing", "count")}
+            # Filtrujemy tylko wybraną zone
+            _sz_data = _sz_data[_sz_data["zone"] == sz_zone_b].copy()
 
-            if "is_swing" in _sz_data.columns:
-                agg_dict["Swing_p"] = ("is_swing", "mean")
-            if "is_whiff" in _sz_data.columns:
-                agg_dict["Whiff_p"] = ("is_whiff", "mean")
-            if "estimated_woba_using_speedangle" in _sz_data.columns:
-                agg_dict["xwOBA"] = ("estimated_woba_using_speedangle", "mean")
-            if "launch_speed" in _sz_data.columns:
-                agg_dict["EV"] = ("launch_speed", "mean")
-            if "launch_angle" in _sz_data.columns:
-                agg_dict["LA"] = ("launch_angle", "mean")
-            if "vbrk" in _sz_data.columns:
-                agg_dict["VBreak"] = ("vbrk", "mean")
-            if "hbrk" in _sz_data.columns:
-                agg_dict["HBreak"] = ("hbrk", "mean")
+            if _sz_data.empty:
+                st.info(f"Brak danych dla Zone {sz_zone_b}")
+            else:
+                # Agregacja
+                agg_dict = {"Pitches": ("is_swing", "count")}
 
-            _sz_tbl = _sz_data.groupby("sub", as_index=False).agg(**agg_dict)
+                if "is_swing" in _sz_data.columns:
+                    agg_dict["Swing_p"] = ("is_swing", "mean")
+                if "is_whiff" in _sz_data.columns:
+                    agg_dict["Whiff_p"] = ("is_whiff", "mean")
+                if "estimated_woba_using_speedangle" in _sz_data.columns:
+                    agg_dict["xwOBA"] = ("estimated_woba_using_speedangle", "mean")
+                if "launch_speed" in _sz_data.columns:
+                    agg_dict["EV"] = ("launch_speed", "mean")
+                if "launch_angle" in _sz_data.columns:
+                    agg_dict["LA"] = ("launch_angle", "mean")
+                if "vbrk" in _sz_data.columns:
+                    agg_dict["VBreak"] = ("vbrk", "mean")
+                if "hbrk" in _sz_data.columns:
+                    agg_dict["HBreak"] = ("hbrk", "mean")
 
-            # Oblicz procenty
-            if "Swing_p" in _sz_tbl.columns:
-                _sz_tbl["Swing%"] = (_sz_tbl["Swing_p"] * 100).round(1)
-            if "Whiff_p" in _sz_tbl.columns:
-                _sz_tbl["Whiff%"] = (_sz_tbl["Whiff_p"] * 100).round(1)
+                _sz_tbl = _sz_data.groupby("sub", as_index=False).agg(**agg_dict)
 
-            # Wybierz kolumny
-            final_cols = ["sub", "Pitches"]
-            for c in ["Swing%", "Whiff%", "xwOBA", "EV", "LA", "HBreak", "VBreak"]:
-                if c in _sz_tbl.columns:
-                    final_cols.append(c)
+                # Procenty
+                if "Swing_p" in _sz_tbl.columns:
+                    _sz_tbl["Swing%"] = (_sz_tbl["Swing_p"] * 100).round(1)
+                if "Whiff_p" in _sz_tbl.columns:
+                    _sz_tbl["Whiff%"] = (_sz_tbl["Whiff_p"] * 100).round(1)
 
-            _sz_tbl = _sz_tbl[final_cols].rename(columns={"sub": "Quadrant"})
+                final_cols = ["sub", "Pitches"]
+                for c in ["Swing%", "Whiff%", "xwOBA", "EV", "LA", "HBreak", "VBreak"]:
+                    if c in _sz_tbl.columns:
+                        final_cols.append(c)
 
-            st.dataframe(
-                _sz_tbl.set_index("Quadrant"),
-                width="stretch",
-                height=190,
-            )
+                _sz_tbl = _sz_tbl[final_cols].rename(columns={"sub": "Quadrant"})
+
+                st.dataframe(
+                    _sz_tbl.set_index("Quadrant"),
+                    width="stretch",
+                    height=190,
+                )
            
 
     # Zone summary table + Comparison (możesz zostawić resztę jak była)
