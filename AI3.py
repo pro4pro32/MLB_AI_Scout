@@ -2923,6 +2923,7 @@ with tab_main:
         return precompute_zone_stats(ALL_YEARS)
 
     _zone_df = _get_zone_stats()
+
     if _zone_df.empty:
         st.error("No Statcast parquet files found.")
         st.stop()
@@ -2962,18 +2963,21 @@ with tab_main:
                 hbrk_min=float(hbrk_m[0]), hbrk_max=float(hbrk_m[1]),
                 vbrk_min=float(vbrk_m[0]), vbrk_max=float(vbrk_m[1])
             )
-        _df_main = compute_zone_stats_with_movement(_raw_m)
+        _df_main = compute_zone_stats_with_movement(_raw_m) if '_raw_m' in locals() else pd.DataFrame()
     else:
         _df_main = apply_tab1_filters(_zone_df, yr_m, pt_m, ph_m, bh_m, cnt_m)
 
-    # Main Heatmap + Sub-zone Grid (side by side)
+    # Main Heatmap + Sub-zone
     col_hm, col_sz = st.columns([5, 4], gap="medium")
 
     with col_hm:
-        _main_title = " · ".join(filter(None, [stat_m, pt_m if pt_m != "All" else None,
-                                               f"P:{ph_m}HP" if ph_m != "All" else None,
-                                               f"B:{bh_m}HB" if bh_m != "All" else None,
-                                               f"Count {cnt_m}" if cnt_m != "All" else None]))
+        _main_title = " · ".join(filter(None, [
+            stat_m,
+            pt_m if pt_m != "All" else None,
+            f"P:{ph_m}HP" if ph_m != "All" else None,
+            f"B:{bh_m}HB" if bh_m != "All" else None,
+            f"Count {cnt_m}" if cnt_m != "All" else None
+        ]))
         fig_m = draw_heatmap(_df_main, stat_m, _main_title)
         st.pyplot(fig_m, use_container_width=True)
         plt.close(fig_m)
@@ -2997,6 +3001,7 @@ with tab_main:
             key="sz_stat_m_main",
         )
 
+        # Sub-zone data
         if _has_mvmt and '_raw_m' in locals() and not _raw_m.empty:
             _raw_for_sz = _raw_m
         else:
@@ -3009,59 +3014,33 @@ with tab_main:
                 )
 
         if not _raw_for_sz.empty:
-            # draw_subzone_panel operuje na surowych danych (plate_x/plate_z)
             fig_sz = draw_subzone_panel(_raw_for_sz, sz_zone_m, sz_stat_m)
             st.pyplot(fig_sz, use_container_width=True)
             plt.close(fig_sz)
 
-
-            _bff_zone = _add_flags(_bff_zone.copy())
             # Quick stats table
-                       # ── Sub-zone quick stats ─────────────────────────────────────
-            _sz_data = _bff.copy()   # <-- ZMIANA: używamy _bff zamiast _bff_zone
+            _sz_data = _raw_for_sz[_raw_for_sz["zone"] == sz_zone_m].copy()
+            if not _sz_data.empty:
+                _sz_data = _add_flags(_sz_data)   # <-- ważne!
 
-            # Dodaj flagi jeśli ich nie ma
-            if "is_swing" not in _sz_data.columns:
-                _sz_data = _add_flags(_sz_data)
-
-            # Filtrujemy tylko wybraną zone
-            _sz_data = _sz_data[_sz_data["zone"] == sz_zone_b].copy()
-
-            if _sz_data.empty:
-                st.info(f"Brak danych dla Zone {sz_zone_b}")
-            else:
-                # Agregacja
                 agg_dict = {"Pitches": ("is_swing", "count")}
-
-                if "is_swing" in _sz_data.columns:
-                    agg_dict["Swing_p"] = ("is_swing", "mean")
-                if "is_whiff" in _sz_data.columns:
-                    agg_dict["Whiff_p"] = ("is_whiff", "mean")
+                if "is_swing" in _sz_data.columns: agg_dict["Swing_p"] = ("is_swing", "mean")
+                if "is_whiff" in _sz_data.columns: agg_dict["Whiff_p"] = ("is_whiff", "mean")
                 if "estimated_woba_using_speedangle" in _sz_data.columns:
                     agg_dict["xwOBA"] = ("estimated_woba_using_speedangle", "mean")
                 if "launch_speed" in _sz_data.columns:
                     agg_dict["EV"] = ("launch_speed", "mean")
-                if "launch_angle" in _sz_data.columns:
-                    agg_dict["LA"] = ("launch_angle", "mean")
-                if "vbrk" in _sz_data.columns:
-                    agg_dict["VBreak"] = ("vbrk", "mean")
-                if "hbrk" in _sz_data.columns:
-                    agg_dict["HBreak"] = ("hbrk", "mean")
 
                 _sz_tbl = _sz_data.groupby("sub", as_index=False).agg(**agg_dict)
 
-                # Procenty
                 if "Swing_p" in _sz_tbl.columns:
                     _sz_tbl["Swing%"] = (_sz_tbl["Swing_p"] * 100).round(1)
                 if "Whiff_p" in _sz_tbl.columns:
                     _sz_tbl["Whiff%"] = (_sz_tbl["Whiff_p"] * 100).round(1)
 
-                final_cols = ["sub", "Pitches"]
-                for c in ["Swing%", "Whiff%", "xwOBA", "EV", "LA", "HBreak", "VBreak"]:
-                    if c in _sz_tbl.columns:
-                        final_cols.append(c)
-
-                _sz_tbl = _sz_tbl[final_cols].rename(columns={"sub": "Quadrant"})
+                final_cols = ["sub", "Pitches", "Swing%", "Whiff%", "xwOBA", "EV"]
+                _sz_tbl = _sz_tbl[[c for c in final_cols if c in _sz_tbl.columns]]
+                _sz_tbl = _sz_tbl.rename(columns={"sub": "Quadrant"})
 
                 st.dataframe(
                     _sz_tbl.set_index("Quadrant"),
