@@ -4394,7 +4394,7 @@ His score is high because K/9 and BB/9 are legitimately bad, **not** just ERA-FI
                     _rb_ln = " ".join(_rb_parts[1:]) if len(_rb_parts) > 1 else ""
 
                     if st.button(f"📡  Load Live Statcast for {r['name']}",
-                                 key=f"rb_sc_{rank}_{rb_season}", `width='stretch'):
+                                 key=f"rb_sc_{rank}_{rb_season}",):
                         # Find pitcher ID from meta map
                         _found_pid = None
                         for _p2id, _p2meta in _pitcher_meta.items():
