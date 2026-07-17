@@ -3821,7 +3821,7 @@ with tab_pitcher:
             key="p_pitcher_sel",
         )
 
-    if st.button("▶️  Load Pitcher Data", key="ps_go2", "width"='content'):
+    if st.button("▶️  Load Pitcher Data", key="ps_go2", 'width'='content'):
         _pid = _pitcher_disp_map.get(ps_choice)
         if _pid:
             with st.spinner(f"Loading statcast data for {ps_choice}…"):
