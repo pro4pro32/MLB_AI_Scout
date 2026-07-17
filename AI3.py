@@ -3122,7 +3122,8 @@ with tab_main:
         st.dataframe(
             _df_main[_sum_base + _sum_mvmt].rename(columns=_rn)
             .sort_values("zone").reset_index(drop=True),
-            width='stretch, height=430,
+            width="stretch", 
+            height=430,
         )
     else:
         st.info("No data for the current filter combination.")
