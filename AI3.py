@@ -3098,9 +3098,11 @@ with tab_main:
             "avg_velo","avg_spin","avg_hbrk","avg_vbrk",
         ] if c in _df_main.columns]
 
-        # If movement cols not in _df_main (pre-agg path), compute from raw
-        if not _sum_mvmt and not _raw_for_sz.empty:
-            _df_mvmt = compute_zone_stats_with_movement(_raw_for_sz)
+            # If movement cols not in _df_main (pre-agg path), compute from raw
+    if not _sum_mvmt and not _raw_for_sz.empty:
+        with st.spinner("Computing movement stats..."):
+            _raw_for_mvmt = _add_flags(_raw_for_sz.copy())   # <<< TO JEST KLUCZ
+            _df_mvmt = compute_zone_stats_with_movement(_raw_for_mvmt)
             _mvmt_cols = [c for c in ["avg_spin","avg_hbrk","avg_vbrk","avg_velo"]
                           if c in _df_mvmt.columns]
             if _mvmt_cols:
