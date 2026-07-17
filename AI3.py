@@ -3882,7 +3882,8 @@ with tab_pitcher:
                   "Arm°":_mfmt("{:.1f}"),"Whiff%":_mfmt("{:.1f}%")}
         st.dataframe(
             _tbl.style.format({k:v for k,v in _fmt_d.items() if k in _tbl.columns}),
-            width='stretch, height=min(380, 60 + len(_ars)*40),
+            width="stretch", 
+            height=min(380, 60 + len(_ars)*40),
         )
 
         # ── Zone Heatmap with full filters ────────────────────────────
