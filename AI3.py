@@ -3018,34 +3018,54 @@ with tab_main:
             st.pyplot(fig_sz, use_container_width=True)
             plt.close(fig_sz)
 
-            # Quick stats table
+           # Quick stats table
             _sz_data = _raw_for_sz[_raw_for_sz["zone"] == sz_zone_m].copy()
-            if not _sz_data.empty:
-                _sz_data = _add_flags(_sz_data)   # <-- ważne!
+            if not _sz_data.empty and "plate_x" in _sz_data.columns:
+                # BRAKUJĄCY KROK: utwórz kolumnę "sub" przed groupby
+                _sz_data["sub"] = _sz_data.apply(
+                    lambda r: classify_subzone(
+                        float(r["plate_x"]) if not pd.isna(r["plate_x"]) else 0.0,
+                        float(r["plate_z"]) if not pd.isna(r["plate_z"]) else 2.5,
+                        sz_zone_m,
+                    ), axis=1,
+                )
 
-                agg_dict = {"Pitches": ("is_swing", "count")}
-                if "is_swing" in _sz_data.columns: agg_dict["Swing_p"] = ("is_swing", "mean")
-                if "is_whiff" in _sz_data.columns: agg_dict["Whiff_p"] = ("is_whiff", "mean")
-                if "estimated_woba_using_speedangle" in _sz_data.columns:
-                    agg_dict["xwOBA"] = ("estimated_woba_using_speedangle", "mean")
-                if "launch_speed" in _sz_data.columns:
-                    agg_dict["EV"] = ("launch_speed", "mean")
+                # Upewnij się że mamy flagi
+                if "is_swing" not in _sz_data.columns:
+                    _sz_data = _add_flags(_sz_data)
+                if "hbrk" not in _sz_data.columns and "pfx_x" in _sz_data.columns:
+                    _sz_data["hbrk"] = pd.to_numeric(_sz_data["pfx_x"], errors="coerce") * 12
+                if "vbrk" not in _sz_data.columns and "pfx_z" in _sz_data.columns:
+                    _sz_data["vbrk"] = pd.to_numeric(_sz_data["pfx_z"], errors="coerce") * 12
 
-                _sz_tbl = _sz_data.groupby("sub", as_index=False).agg(**agg_dict)
+                _sz_tbl = _sz_data.groupby("sub", as_index=False).agg(
+                    Pitches = ("is_swing",  "count"),
+                    Swing_p = ("is_swing",  "mean"),
+                    Whiff_p = ("is_whiff",  "mean"),
+                    xwOBA   = ("estimated_woba_using_speedangle", "mean"),
+                    EV      = ("launch_speed", "mean"),
+                    Spin    = ("release_spin_rate", "mean"),
+                    HBreak  = ("hbrk", "mean"),
+                    VBreak  = ("vbrk", "mean"),
+                )
+                _sz_tbl["Swing%"]  = (_sz_tbl["Swing_p"] * 100).round(1)
+                _sz_tbl["Whiff%"]  = (_sz_tbl["Whiff_p"] * 100).round(1)
+                _sz_tbl["xwOBA"]   = _sz_tbl["xwOBA"].round(3)
+                _sz_tbl["EV"]      = _sz_tbl["EV"].round(1)
+                _sz_tbl["Spin"]    = _sz_tbl["Spin"].round(0)
+                _sz_tbl["HBreak"]  = _sz_tbl["HBreak"].round(1)
+                _sz_tbl["VBreak"]  = _sz_tbl["VBreak"].round(1)
 
-                if "Swing_p" in _sz_tbl.columns:
-                    _sz_tbl["Swing%"] = (_sz_tbl["Swing_p"] * 100).round(1)
-                if "Whiff_p" in _sz_tbl.columns:
-                    _sz_tbl["Whiff%"] = (_sz_tbl["Whiff_p"] * 100).round(1)
-
-                final_cols = ["sub", "Pitches", "Swing%", "Whiff%", "xwOBA", "EV"]
+                final_cols = ["sub", "Pitches", "Swing%", "Whiff%",
+                              "xwOBA", "EV", "Spin", "HBreak", "VBreak"]
                 _sz_tbl = _sz_tbl[[c for c in final_cols if c in _sz_tbl.columns]]
-                _sz_tbl = _sz_tbl.rename(columns={"sub": "Quadrant"})
-
+                _sz_tbl = _sz_tbl.rename(columns={
+                    "sub": "Quadrant", "HBreak": "H-Brk\"", "VBreak": "V-Brk\""
+                })
                 st.dataframe(
                     _sz_tbl.set_index("Quadrant"),
-                    width="stretch",
-                    height=190,
+                    use_container_width=True,
+                    height=200,
                 )
            
 
