@@ -3122,7 +3122,7 @@ with tab_main:
         st.dataframe(
             _df_main[_sum_base + _sum_mvmt].rename(columns=_rn)
             .sort_values("zone").reset_index(drop=True),
-            use_container_width=True, height=430,
+            width='stretch, height=430,
         )
     else:
         st.info("No data for the current filter combination.")
@@ -3881,7 +3881,7 @@ with tab_pitcher:
                   "Arm°":_mfmt("{:.1f}"),"Whiff%":_mfmt("{:.1f}%")}
         st.dataframe(
             _tbl.style.format({k:v for k,v in _fmt_d.items() if k in _tbl.columns}),
-            use_container_width=True, height=min(380, 60 + len(_ars)*40),
+            width='stretch, height=min(380, 60 + len(_ars)*40),
         )
 
         # ── Zone Heatmap with full filters ────────────────────────────
@@ -3970,7 +3970,7 @@ with tab_pitcher:
                 ] if c in _hz_zdf.columns]
                 st.dataframe(
                     _hz_zdf[_hz_sum_cols].sort_values("zone").reset_index(drop=True),
-                    use_container_width=True, height=340,
+                    width='stretch, height=340,
                 )
 
         # ── Full scouting report ──────────────────────────────────────
