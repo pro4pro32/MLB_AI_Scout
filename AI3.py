@@ -20,6 +20,16 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import streamlit as st
+st.set_page_config(page_title="MLB Statcast Pro", page_icon="⚾", layout="wide", initial_sidebar_state="collapsed")
+
+# Szybkie ładowanie
+st.cache_data.clear()  # wyczyść cache przy każdym redeploy
+
+# Ogranicz preload
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_minimal_data():
+    # Załaduj tylko to co absolutnie potrzebne na start
+    return load_pitching_stats([2025])  # tylko jeden sezon na początek
 
 try:
     import pyarrow.parquet as pq
@@ -36,7 +46,6 @@ st.set_page_config(
     page_title="MLB Statcast Pro",
     page_icon="⚾",
     layout="wide",
-    initial_sidebar_state="expanded",
 )
 
 # ── 3. DATA PATHS ─────────────────────────────────────────────────────
