@@ -3972,7 +3972,8 @@ with tab_pitcher:
                 ] if c in _hz_zdf.columns]
                 st.dataframe(
                     _hz_zdf[_hz_sum_cols].sort_values("zone").reset_index(drop=True),
-                    width='stretch, height=340,
+                    width="stretch", 
+                    height=340,
                 )
 
         # ── Full scouting report ──────────────────────────────────────
