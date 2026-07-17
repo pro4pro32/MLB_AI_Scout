@@ -4602,7 +4602,7 @@ with tab_batter:
             key="bs_batter_sel",
         )
 
-    if st.button("▶️  Load Batter Data", key="bs_go2", `width='content'):
+    if st.button("▶️  Load Batter Data", key="bs_go2",):
         _bid = _batter_disp_map.get(bs_choice)
         if _bid:
             with st.spinner(f"Loading statcast data for {bs_choice}…"):
