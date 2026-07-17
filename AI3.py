@@ -2276,17 +2276,22 @@ def load_raw_for_subzones(
     return full
 
 
-def compute_zone_stats_with_movement(raw: pd.DataFrame) -> pd.DataFrame:
-    """
-    Like compute_zone_stats_from_raw but also returns avg_spin, avg_hbrk, avg_vbrk.
-    """
-    if raw is None or raw.empty:
-        return pd.DataFrame()
-    valid = raw[raw["zone"].between(1, 14)]
-    if valid.empty:
+def compute_zone_stats_with_movement(raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Oblicza statystyki zone z surowych danych (z ruchem)."""
+    if raw_df.empty:
         return pd.DataFrame()
 
-    grp = valid.groupby("zone", as_index=False).agg(
+    df = raw_df.copy()
+    
+    # <<< NAJWAŻNIEJSZE: dodaj flagi >>>
+    df = _add_flags(df)
+
+    df = df[df["zone"].between(1, 14)].copy()
+
+    if df.empty:
+        return pd.DataFrame()
+
+    grp = df.groupby("zone", as_index=False).agg(
         total       = ("is_swing",   "count"),
         swings      = ("is_swing",   "sum"),
         whiffs      = ("is_whiff",   "sum"),
@@ -2295,26 +2300,31 @@ def compute_zone_stats_with_movement(raw: pd.DataFrame) -> pd.DataFrame:
         hard_hits   = ("is_hh",      "sum"),
         gbs         = ("is_gb",      "sum"),
         batted      = ("launch_speed","count"),
-        avg_ev      = ("launch_speed","mean"),
-        avg_la      = ("launch_angle","mean"),
-        avg_xwoba   = ("estimated_woba_using_speedangle","mean"),
-        avg_spin    = ("release_spin_rate","mean"),
-        avg_hbrk    = ("hbrk","mean"),
-        avg_vbrk    = ("vbrk","mean"),
-        avg_velo    = ("release_speed","mean"),
+        avg_ev      = ("launch_speed", "mean"),
+        avg_la      = ("launch_angle", "mean"),
+        avg_xwoba   = ("estimated_woba_using_speedangle", "mean"),
+        avg_velo    = ("release_speed", "mean"),
+        avg_spin    = ("release_spin_rate", "mean"),
+        avg_hbrk    = ("hbrk", "mean"),
+        avg_vbrk    = ("vbrk", "mean"),
     )
+
+    # Oblicz procenty
     n  = grp["total"].replace(0, np.nan)
     sw = grp["swings"].replace(0, np.nan)
     bt = grp["batted"].replace(0, np.nan)
+
     grp["swing_pct"]    = (grp["swings"]   / n  * 100).round(1)
     grp["whiff_pct"]    = (grp["whiffs"]   / sw * 100).round(1)
     grp["contact_pct"]  = (grp["contacts"] / sw * 100).round(1)
     grp["barrel_pct"]   = (grp["barrels"]  / bt * 100).round(1)
     grp["hard_hit_pct"] = (grp["hard_hits"]/ bt * 100).round(1)
     grp["gb_pct"]       = (grp["gbs"]      / bt * 100).round(1)
-    for c in ["avg_ev","avg_la","avg_spin","avg_hbrk","avg_vbrk","avg_velo"]:
-        grp[c] = grp[c].round(1)
-    grp["avg_xwoba"] = grp["avg_xwoba"].round(3)
+
+    for col in ["avg_ev", "avg_la", "avg_xwoba", "avg_velo", "avg_spin", "avg_hbrk", "avg_vbrk"]:
+        if col in grp.columns:
+            grp[col] = grp[col].round(2 if "xwoba" in col else 1)
+
     return grp
 
 
