@@ -4086,7 +4086,7 @@ with tab_pitcher:
                                 _bpt_vb[_bpt_cols]
                                 .sort_values("whiff_pct", ascending=False, na_position="last")
                                 .reset_index(drop=True),
-                                use_container_width=True,
+                                width='stretch,
                                 height=220,
                             )
                     with ov3:
