@@ -20,10 +20,6 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import streamlit as st
-st.set_page_config(page_title="MLB Statcast Pro", page_icon="⚾", layout="wide")
-
-# Szybki fix na Cloud
-st.cache_data.clear()  # wyczyść cache przy starcie
 
 try:
     import pyarrow.parquet as pq
