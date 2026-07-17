@@ -2139,7 +2139,7 @@ with st.sidebar:
     st.markdown(f'<div class="citation">{BR_CITATION}</div>', unsafe_allow_html=True)
     st.markdown("---")
 
-    if st.button("🔄  Clear All Cache", use_container_width=True):
+    if st.button("🔄  Clear All Cache", width="stretch"):
         st.cache_data.clear()
         st.success("✅  Cache cleared — reload the page.")
         st.rerun()
@@ -3821,7 +3821,7 @@ with tab_pitcher:
             key="p_pitcher_sel",
         )
 
-    if st.button("▶️  Load Pitcher Data", key="ps_go2", use_container_width=False):
+    if st.button("▶️  Load Pitcher Data", key="ps_go2", `width='content'):
         _pid = _pitcher_disp_map.get(ps_choice)
         if _pid:
             with st.spinner(f"Loading statcast data for {ps_choice}…"):
@@ -4394,7 +4394,7 @@ His score is high because K/9 and BB/9 are legitimately bad, **not** just ERA-FI
                     _rb_ln = " ".join(_rb_parts[1:]) if len(_rb_parts) > 1 else ""
 
                     if st.button(f"📡  Load Live Statcast for {r['name']}",
-                                 key=f"rb_sc_{rank}_{rb_season}", use_container_width=True):
+                                 key=f"rb_sc_{rank}_{rb_season}", `width='stretch'):
                         # Find pitcher ID from meta map
                         _found_pid = None
                         for _p2id, _p2meta in _pitcher_meta.items():
@@ -4602,7 +4602,7 @@ with tab_batter:
             key="bs_batter_sel",
         )
 
-    if st.button("▶️  Load Batter Data", key="bs_go2", use_container_width=False):
+    if st.button("▶️  Load Batter Data", key="bs_go2", `width='content'):
         _bid = _batter_disp_map.get(bs_choice)
         if _bid:
             with st.spinner(f"Loading statcast data for {bs_choice}…"):
