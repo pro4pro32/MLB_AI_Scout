@@ -4791,7 +4791,7 @@ with tab_batter:
                         _sz_tbl.columns = ["Quadrant","Pitches","Swing%","Whiff%","xwOBA","Exit V"]
                         st.dataframe(
                             _sz_tbl.set_index("Quadrant"),
-                            use_container_width=True,
+                            width='stretch,
                             height=190,
                         )
                 else:
@@ -4842,7 +4842,7 @@ with tab_batter:
                     .sort_values(_sort_col, ascending=False, na_position="last")
                     .reset_index(drop=True)
                     .style.format({k:v for k,v in _bpt_fmt.items() if k in _bpt_disp.columns}),
-                    use_container_width=True,
+                    width='stretch,
                     height=min(420, 60 + len(_bpt_disp)*40),
                 )
 
@@ -4929,7 +4929,7 @@ with tab_batter:
                 with st.expander("📋 Count table", expanded=False):
                     st.dataframe(
                         _bcnt_disp.sort_values("Count").reset_index(drop=True),
-                        use_container_width=True, height=350,
+                        width='stretch, height=350,
                     )
 
             # ── Platoon Splits ─────────────────────────────────────────
@@ -4950,7 +4950,7 @@ with tab_batter:
                     _plt_df.style.format({
                         "Swing%":"{:.1f}%","Whiff%":"{:.1f}%","xwOBA":"{:.3f}",
                     }),
-                    use_container_width=True, height=120,
+                    width='stretch, height=120,
                 )
                 # Interpretation
                 if "R" in _bplt and "L" in _bplt:
@@ -4991,7 +4991,7 @@ with tab_batter:
                     st.dataframe(
                         _bzdf[_bz_cols].rename(columns=_bz_rn)
                         .sort_values("zone").reset_index(drop=True),
-                        use_container_width=True, height=400,
+                        width='stretch, height=400,
                     )
 
             # ── AI Pitching Plan ───────────────────────────────────────
