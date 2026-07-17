@@ -4794,7 +4794,7 @@ with tab_batter:
                         _sz_tbl.columns = ["Quadrant","Pitches","Swing%","Whiff%","xwOBA","Exit V"]
                         st.dataframe(
                             _sz_tbl.set_index("Quadrant"),
-                            width='stretch,
+                            width="stretch",
                             height=190,
                         )
                 else:
