@@ -3074,7 +3074,7 @@ with tab_main:
                 })
                 st.dataframe(
                     _sz_tbl.set_index("Quadrant"),
-                    use_container_width=True,
+                    width="stretch",
                     height=200,
                 )
            
@@ -4251,7 +4251,7 @@ His score is high because K/9 and BB/9 are legitimately bad, **not** just ERA-FI
                 "Score": r["score"],
             } for i, r in enumerate(_top)]
             st.dataframe(pd.DataFrame(_summ).set_index("#"),
-                         use_container_width=True, height=400)
+                         width="stretch", height=400)
 
             st.markdown('<div class="sec-hdr">Detailed Breakdown</div>', unsafe_allow_html=True)
 
