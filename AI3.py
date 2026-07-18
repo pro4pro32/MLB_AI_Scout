@@ -1456,43 +1456,27 @@ def analyze_batter(df: pd.DataFrame, filters: dict | None = None) -> dict:
     bz = dff[dff["zone"].between(1, 9)].copy()
     sub_stats = pd.DataFrame()
     if "plate_x" in bz.columns and "plate_z" in bz.columns and not bz.empty:
-        bz = bz.copy()
         bz["sub_zone"] = bz.apply(
             lambda r: classify_subzone(
                 safe_num(r["plate_x"]), safe_num(r["plate_z"]), int(r["zone"])
             ) if not pd.isna(r["zone"]) else "??",
             axis=1,
         )
-        # Czysta agregacja bez multi-level columns
-    sg = bz.groupby("sub", as_index=False).agg(
-        total     = ("is_swing",  "count"),
-        swings    = ("is_swing",  "sum"),
-        whiffs    = ("is_whiff",  "sum"),
-        contacts  = ("is_contact","sum"),
-        barrels   = ("is_barrel", "sum"),
-        hhs       = ("is_hh",     "sum"),
-        gbs       = ("is_gb",     "sum"),
-        batted    = ("launch_speed","count"),
-        avg_ev    = ("launch_speed","mean"),
-        avg_la    = ("launch_angle","mean"),
-        avg_xwoba = ("estimated_woba_using_speedangle","mean"),
-    )
-
-    sw = sg["swings"].replace(0, np.nan)
-    n  = sg["total"].replace(0, np.nan)
-    bt_sz = sg["batted"].replace(0, np.nan)
-
-    sg["whiff_pct"]   = (sg["whiffs"]  / sw    * 100).round(1)
-    sg["swing_pct"]   = (sg["swings"]  / n     * 100).round(1)
-    sg["contact_pct"] = (sg["contacts"]/ sw    * 100).round(1)
-    sg["barrel_pct"]  = (sg["barrels"] / bt_sz * 100).round(1)
-    sg["hard_hit_pct"]= (sg["hhs"]     / bt_sz * 100).round(1)
-    sg["gb_pct"]      = (sg["gbs"]     / bt_sz * 100).round(1)
-    sg["avg_ev"]      = sg["avg_ev"].round(1)
-    sg["avg_la"]      = sg["avg_la"].round(1)
-    sg["avg_xwoba"]   = sg["avg_xwoba"].round(3)
-
-    sg = sg.set_index("sub")
+        sub_stats = bz.groupby(["zone", "sub_zone"], as_index=False).agg(
+            total     = ("is_swing",  "count"),
+            swings    = ("is_swing",  "sum"),
+            whiffs    = ("is_whiff",  "sum"),
+            contacts  = ("is_contact","sum"),
+            avg_xwoba = ("estimated_woba_using_speedangle","mean"),
+            avg_ev    = ("launch_speed","mean"),
+            avg_la    = ("launch_angle","mean"),
+        )
+        sw_s = sub_stats["swings"].replace(0, np.nan)
+        n_s  = sub_stats["total"].replace(0, np.nan)
+        sub_stats["whiff_pct"] = (sub_stats["whiffs"] / sw_s * 100).round(1)
+        sub_stats["swing_pct"] = (sub_stats["swings"] / n_s  * 100).round(1)
+        sub_stats["avg_xwoba"] = sub_stats["avg_xwoba"].round(3)
+        sub_stats["avg_ev"]    = sub_stats["avg_ev"].round(1)
 
     # ── Pitch-type stats ─────────────────────────────────────────────
     pt_agg = dff.groupby("pitch_type").agg(
@@ -4859,40 +4843,29 @@ with tab_batter:
                 )
 
                      # ── Visual pitch breakdown bars ───────────────────────────────
-        _bpt = _bstats.get("pt_stats", pd.DataFrame())
-        
-        if not _bpt.empty and "whiff_pct" in _bpt.columns and "pitch_type" in _bpt.columns:
-            st.markdown('<div class="rpt-h3">Whiff % by pitch type (batter\'s view):</div>',
-                        unsafe_allow_html=True)
-            
-            _bpt_sorted = _bpt.dropna(subset=["whiff_pct"]).sort_values("whiff_pct", ascending=False)
-            
-            fig_pt, ax_pt = plt.subplots(figsize=(10, 3.5))
-            fig_pt.patch.set_facecolor("#0b0f17")
-            ax_pt.set_facecolor("#111621")
-            
-            _colors_pt = [PITCH_COLORS.get(pt, "#94a3b8") for pt in _bpt_sorted["pitch_type"]]
-            _labels_pt = _bpt_sorted.get("pitch_name", _bpt_sorted["pitch_type"])
-            
-            bars_pt = ax_pt.barh(_labels_pt, _bpt_sorted["whiff_pct"],
-                                 color=_colors_pt, edgecolor="#1e2535", height=0.65)
-            
-            for bar, val in zip(bars_pt, _bpt_sorted["whiff_pct"]):
-                ax_pt.text(val + 0.8, bar.get_y() + bar.get_height()/2,
-                           f"{val:.1f}%", va="center", fontsize=8.5,
-                           fontweight="bold", color="#e2e8f0")
-            
-            ax_pt.set_xlabel("Whiff % (higher = more vulnerable to this pitch)",
-                             color="#a0aec0", fontsize=9)
-            ax_pt.invert_yaxis()
-            ax_pt.tick_params(colors="#8892a4", labelsize=8.5)
-            ax_pt.set_xlim(0, _bpt_sorted["whiff_pct"].max() + 18)
-            
-            for sp in ax_pt.spines.values():
-                sp.set_edgecolor("#2a3545")
-            
-            st.pyplot(fig_pt, use_container_width=True)
-            plt.close(fig_pt)
+        if not _bpt.empty and "whiff_pct" in _bpt.columns:
+            _bpt_sorted = _bpt.dropna(subset=["whiff_pct"]).sort_values(
+                "whiff_pct", ascending=False)
+            if not _bpt_sorted.empty:
+                fig_pt, ax_pt = plt.subplots(figsize=(10, 3.5))
+                fig_pt.patch.set_facecolor("#0b0f17")
+                ax_pt.set_facecolor("#111621")
+                _colors_pt = [PITCH_COLORS.get(pt,"#94a3b8") for pt in _bpt_sorted["pitch_type"]]
+                _labels_pt = _bpt_sorted.get("pitch_name", _bpt_sorted["pitch_type"])
+                bars_pt = ax_pt.barh(_labels_pt, _bpt_sorted["whiff_pct"],
+                                     color=_colors_pt, edgecolor="#1e2535", height=0.65)
+                for bar, val in zip(bars_pt, _bpt_sorted["whiff_pct"]):
+                    ax_pt.text(val+0.8, bar.get_y()+bar.get_height()/2,
+                               f"{val:.1f}%", va="center", fontsize=8.5,
+                               fontweight="bold", color="#e2e8f0")
+                ax_pt.set_xlabel("Whiff % (higher = more vulnerable)",
+                                 color="#a0aec0", fontsize=9)
+                ax_pt.invert_yaxis()
+                ax_pt.tick_params(colors="#8892a4", labelsize=8.5)
+                ax_pt.set_xlim(0, _bpt_sorted["whiff_pct"].max()+18)
+                for sp in ax_pt.spines.values(): sp.set_edgecolor("#2a3545")
+                st.pyplot(fig_pt, use_container_width=True)
+                plt.close(fig_pt)
         else:
             st.info("No pitch-type data for current filters.")  
 
