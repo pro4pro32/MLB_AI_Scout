@@ -2913,6 +2913,14 @@ def draw_subzone_panel(raw_df: pd.DataFrame, zone: int,
     plt.tight_layout(pad=0.5)
     return fig
 
+@st.cache_data(ttl=86400, show_spinner="⏳ Loading zone stats…")
+def _get_zone_stats():
+    # Najpierw sprawdź czy mamy gotowy plik (z precompute.py)
+    precomp = DATA_DIR / "zone_stats_agg.parquet"
+    if precomp.exists():
+        return pd.read_parquet(precomp, engine="pyarrow")  # ~0.2s
+    # Fallback: oblicz od zera (~60s)
+    return precompute_zone_stats(ALL_YEARS)
 
 with tab_main:
     st.markdown('<div class="sec-hdr">📊 Zone Heatmap — All Pitches</div>',
