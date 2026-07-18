@@ -479,25 +479,23 @@ def _add_flags(df: pd.DataFrame) -> pd.DataFrame:
 
 @st.cache_data(ttl=7200, show_spinner=False)
 def build_meta_maps(years: tuple = (2024, 2025, 2026)) -> tuple:
-    """
-    Buduje meta dane (batter + pitcher) — teraz obsługuje listę miesięcznych plików.
-    """
-    batter_meta: dict  = {}
+    batter_meta:  dict = {}
     pitcher_meta: dict = {}
 
     for yr in years:
         if yr not in STATCAST_FILES:
             continue
-        
-        # Teraz iterujemy po miesiącach
-        for path in STATCAST_FILES[yr]:
+
+        # ← ZMIANA: czytaj tylko JEDEN plik na rok (wystarczy do budowy indeksu)
+        paths_to_scan = STATCAST_FILES[yr][:1]   # tylko pierwszy miesiąc
+        # Jeśli chcesz pełny indeks teamów, weź max 2 pliki:
+        # paths_to_scan = STATCAST_FILES[yr][:2]
+
+        for path in paths_to_scan:
             if not path.exists():
                 continue
-
-            # Load only the meta columns — bardzo szybkie
             meta_cols = ["batter", "pitcher", "player_name", "des",
                          "stand", "p_throws", "home_team", "away_team", "inning_topbot"]
-            
             try:
                 df = pd.read_parquet(path, engine="pyarrow", columns=meta_cols)
             except Exception:
@@ -2068,26 +2066,29 @@ def generate_matchup_plan(
 
 ALL_YEARS = (2024, 2025, 2026)
 
-# Fast: only loads name/team columns
-with st.spinner("🔍  Building player maps…"):
-    _batter_meta, _pitcher_meta = build_meta_maps(ALL_YEARS)
-
-# Fast: small parquet files
-with st.spinner("📋  Loading pitching stats (Baseball Reference)…"):
+# Tylko mały plik BR — szybkie (<1s)
+with st.spinner("📋  Loading pitching stats…"):
     _pitching_df = load_pitching_stats(ALL_YEARS)
 
-# Build selectbox lists
+# Meta mapy — lazy, tylko jeśli jeszcze nie załadowane
+if "meta_loaded" not in st.session_state:
+    with st.spinner("🔍  Building player index (first load ~15s)…"):
+        _batter_meta, _pitcher_meta = build_meta_maps(ALL_YEARS)
+        st.session_state["_batter_meta"]   = _batter_meta
+        st.session_state["_pitcher_meta"]  = _pitcher_meta
+        st.session_state["meta_loaded"]    = True
+else:
+    _batter_meta  = st.session_state["_batter_meta"]
+    _pitcher_meta = st.session_state["_pitcher_meta"]
+
 _pitcher_disp_list, _pitcher_disp_map = build_pitcher_selectbox(_pitcher_meta)
 _batter_disp_list,  _batter_disp_map  = build_batter_selectbox(_batter_meta)
 
-# Collect all unique teams from batter meta
 _all_teams = sorted({
     m.get("team", "?")
     for m in _batter_meta.values()
     if m.get("team") and m.get("team") != "?"
 })
-
-# Available seasons from pitching stats
 _avail_seasons = (
     sorted(_pitching_df["season"].dropna().unique().tolist())
     if not _pitching_df.empty and "season" in _pitching_df.columns
