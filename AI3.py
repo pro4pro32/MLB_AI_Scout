@@ -2576,14 +2576,23 @@ def load_raw_for_subzones(
             pd.to_numeric(full["release_spin_rate"], errors="coerce")
             .between(spin_min, spin_max).fillna(True)
         ]
-    if "hbrk" in full.columns or "pfx_x" in full.columns:
-        hbrk_col = "hbrk" if "hbrk" in full.columns else "pfx_x"
-        full[hbrk_col] = pd.to_numeric(full[hbrk_col], errors="coerce") * 12
-        full = full[full[hbrk_col].between(hbrk_min, hbrk_max).fillna(True)]
-    if "vbrk" in full.columns or "pfx_z" in full.columns:
-        vbrk_col = "vbrk" if "vbrk" in full.columns else "pfx_z"
-        full[vbrk_col] = pd.to_numeric(full[vbrk_col], errors="coerce") * 12
-        full = full[full[vbrk_col].between(vbrk_min, vbrk_max).fillna(True)]
+    # Dodaj hbrk/vbrk jeśli jeszcze nie ma
+    if "hbrk" not in full.columns and "pfx_x" in full.columns:
+        full["hbrk"] = pd.to_numeric(full["pfx_x"], errors="coerce") * 12
+    if "vbrk" not in full.columns and "pfx_z" in full.columns:
+        full["vbrk"] = pd.to_numeric(full["pfx_z"], errors="coerce") * 12
+
+    # ← DODAJ: flagi eventów
+    if "is_swing" not in full.columns:
+        desc = full["description"].fillna("")
+        full["is_swing"]   = desc.isin(SWING_EV).astype("int8")
+        full["is_whiff"]   = desc.isin(WHIFF_EV).astype("int8")
+        full["is_contact"] = desc.isin(CONTACT_EV).astype("int8")
+        ls = pd.to_numeric(full.get("launch_speed", pd.Series(dtype=float)), errors="coerce")
+        la = pd.to_numeric(full.get("launch_angle",  pd.Series(dtype=float)), errors="coerce")
+        full["is_barrel"]  = ((ls >= 98) & la.between(26,30)).fillna(False).astype("int8")
+        full["is_hh"]      = (ls >= 95).fillna(False).astype("int8")
+        full["is_gb"]      = (la < 10).fillna(False).astype("int8")
 
     return full
 
