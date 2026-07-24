@@ -477,6 +477,48 @@ def _add_flags(df: pd.DataFrame) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=7200, show_spinner=False)
+def load_precomputed_meta_maps() -> tuple | None:
+    """
+    Load batter_meta / pitcher_meta from the small precomputed
+    meta_batters.parquet / meta_pitchers.parquet files (produced by
+    precompute.py), instead of re-deriving them from raw Statcast data
+    on every cold start. Returns None if either file is missing, so the
+    caller can fall back to build_meta_maps().
+
+    This matters for memory: build_meta_maps() has to open and parse
+    at least one raw monthly Statcast parquet file per year, which is
+    unnecessary work (and RAM) if we already precomputed the result.
+    """
+    b_path = DATA_DIR / "meta_batters.parquet"
+    p_path = DATA_DIR / "meta_pitchers.parquet"
+    if not (b_path.exists() and p_path.exists()):
+        return None
+
+    try:
+        bdf = pd.read_parquet(b_path, engine="pyarrow").sort_values("season")
+        pdf = pd.read_parquet(p_path, engine="pyarrow").sort_values("season")
+    except Exception:
+        return None
+
+    batter_meta: dict = {}
+    for _, row in bdf.drop_duplicates("batter_id", keep="first").iterrows():
+        batter_meta[int(row["batter_id"])] = {
+            "name":  row.get("name"),
+            "team":  str(row.get("team", "?")),
+            "stand": str(row.get("stand", "?")),
+        }
+
+    pitcher_meta: dict = {}
+    for _, row in pdf.drop_duplicates("pitcher_id", keep="first").iterrows():
+        pitcher_meta[int(row["pitcher_id"])] = {
+            "name": str(row.get("raw_name", "")),
+            "hand": str(row.get("hand", "?")),
+        }
+
+    return batter_meta, pitcher_meta
+
+
+@st.cache_data(ttl=7200, show_spinner=False)
 def build_meta_maps(years: tuple = (2024, 2025, 2026)) -> tuple:
     batter_meta:  dict = {}
     pitcher_meta: dict = {}
@@ -1875,11 +1917,16 @@ with st.spinner("📋  Loading pitching stats…"):
     _pitching_df = load_pitching_stats(ALL_YEARS)
 
 if "meta_loaded" not in st.session_state:
-    with st.spinner("🔍  Building player index (first load ~15s)…"):
-        _batter_meta, _pitcher_meta = build_meta_maps(ALL_YEARS)
-        st.session_state["_batter_meta"]   = _batter_meta
-        st.session_state["_pitcher_meta"]  = _pitcher_meta
-        st.session_state["meta_loaded"]    = True
+    _precomputed_meta = load_precomputed_meta_maps()
+    if _precomputed_meta is not None:
+        with st.spinner("🔍  Loading player index…"):
+            _batter_meta, _pitcher_meta = _precomputed_meta
+    else:
+        with st.spinner("🔍  Building player index from raw data (first load ~15s)…"):
+            _batter_meta, _pitcher_meta = build_meta_maps(ALL_YEARS)
+    st.session_state["_batter_meta"]   = _batter_meta
+    st.session_state["_pitcher_meta"]  = _pitcher_meta
+    st.session_state["meta_loaded"]    = True
 else:
     _batter_meta  = st.session_state["_batter_meta"]
     _pitcher_meta = st.session_state["_pitcher_meta"]
@@ -2392,10 +2439,22 @@ def draw_subzone_panel(raw_df: pd.DataFrame, zone: int,
 
 @st.cache_data(ttl=3600, show_spinner="⏳ Loading zone stats...")
 def _get_zone_stats():
+    """
+    Load the pre-aggregated Tab 1 zone stats.
+
+    IMPORTANT: we deliberately do NOT fall back to computing this live
+    from every monthly Statcast file across every year at app startup.
+    That fallback (precompute_zone_stats(ALL_YEARS)) reads and
+    concatenates the entire multi-year raw dataset in memory, which can
+    exceed the ~1GB RAM limit on Streamlit Community Cloud and crash
+    the whole app with no useful error message (an OS-level OOM kill,
+    not a Python exception). Instead, this file must be generated
+    once locally by running precompute.py and committed to the repo.
+    """
     precomp = DATA_DIR / "zone_stats_agg.parquet"
     if precomp.exists():
         return pd.read_parquet(precomp, engine="pyarrow")
-    return precompute_zone_stats(ALL_YEARS)
+    return pd.DataFrame()
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -2408,7 +2467,16 @@ with tab_main:
     _zone_df = _get_zone_stats()
 
     if _zone_df.empty:
-        st.error("No Statcast parquet files found.")
+        st.error(
+            "⚠️ Missing `zone_stats_agg.parquet`.\n\n"
+            "Run `precompute.py` locally (in the folder with your monthly "
+            "`statcast_*.parquet` files) and commit the 3 generated parquet "
+            "files (`zone_stats_agg.parquet`, `meta_batters.parquet`, "
+            "`meta_pitchers.parquet`) to this repo. The app intentionally "
+            "will not try to rebuild this from raw data at startup, since "
+            "loading every monthly file across every year in memory at once "
+            "can exceed free-tier hosting memory limits and crash the app."
+        )
         st.stop()
 
     _pt_opts = ["All"] + sorted(_zone_df["pitch_type"].dropna().unique().tolist())
