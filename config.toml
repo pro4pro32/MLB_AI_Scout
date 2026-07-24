@@ -19,4 +19,4 @@ fastReruns = true
 
 [client]
 caching = true
-showErrorDetails = false
+showErrorDetails = true
