@@ -2746,7 +2746,20 @@ with tab_main:
 @st.cache_data(ttl=7200, show_spinner=False)
 def build_pitcher_team_roster(pitching_df: pd.DataFrame,
                                pitcher_meta: dict) -> dict:
+    """
+    Build {season: {team: [display_str, ...]}} for pitchers by matching
+    Baseball-Reference names (pitching_df) to Statcast pitcher_meta names.
+
+    PERFORMANCE NOTE: the original implementation fell back, for every
+    unmatched Baseball-Reference row, to scanning *every* entry in
+    pitcher_meta (a nested O(rows * pitchers) loop of string
+    containment checks). On a full multi-year dataset that's easily
+    millions of comparisons and can make startup very slow. Here we
+    index candidates by last name first, so the fallback only scans
+    pitchers sharing that last name.
+    """
     rev_lower = {}
+    by_last_name: dict = {}
     for pid, meta in pitcher_meta.items():
         raw = meta.get("name", "")
         parts = raw.split(",")
@@ -2757,7 +2770,10 @@ def build_pitcher_team_roster(pitching_df: pd.DataFrame,
             disp_name = raw.strip()
         hand = meta.get("hand", "?")
         disp_key = f"{disp_name}  ({'RHP' if hand=='R' else 'LHP'})"
-        rev_lower[disp_name.lower()] = disp_key
+        disp_lower = disp_name.lower()
+        rev_lower[disp_lower] = disp_key
+        last_word = disp_lower.split()[-1] if disp_lower.split() else ""
+        by_last_name.setdefault(last_word, []).append((disp_lower, disp_key))
 
     roster = {}
 
@@ -2770,11 +2786,12 @@ def build_pitcher_team_roster(pitching_df: pd.DataFrame,
             name_raw = str(row.get("Name", "")).strip()
             team     = str(row.get("Team", "?")).strip()
             disp_key = rev_lower.get(name_raw.lower())
-            if disp_key is None:
-                last = name_raw.split()[-1].lower() if name_raw else ""
-                first= name_raw.split()[0].lower() if len(name_raw.split()) > 1 else ""
-                for k, v in rev_lower.items():
-                    if last and last in k and first and first in k:
+            if disp_key is None and name_raw:
+                words = name_raw.lower().split()
+                last  = words[-1] if words else ""
+                first = words[0] if len(words) > 1 else ""
+                for k, v in by_last_name.get(last, []):
+                    if first and first in k:
                         disp_key = v
                         break
             if disp_key:
