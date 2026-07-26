@@ -131,6 +131,22 @@ PITCH_LONG = {
     "FA": "Fastball",
 }
 
+PITCH_DESCRIPTIONS = {
+    "FF": "High-spin, thrown hard and straight; rides above its trajectory.",
+    "SI": "Fastball variant with heavy arm-side run and natural sink.",
+    "FC": "Fastball-speed pitch with late glove-side cut.",
+    "SL": "Sharp, mid-to-high velocity glove-side break — classic out-pitch.",
+    "ST": "Wide horizontal sweep at lower velocity than a slider.",
+    "CH": "Off-speed pitch mimicking fastball arm action; fades arm-side.",
+    "CU": "Slow pitch with a large, looping downward break.",
+    "KC": "Tighter, sharper downward break than a traditional curveball.",
+    "SV": "Hybrid slider/curve with diagonal break.",
+    "FS": "Fastball-speed pitch with a late, tumbling downward drop.",
+    "FO": "Deep-finger split pitch with a hard, sudden drop.",
+    "KN": "Minimal spin; erratic, largely unpredictable movement.",
+    "FA": "Generic fastball classification (sub-type unspecified).",
+}
+
 MLB_AVG = {
     "FF": {"velo": 94.0, "spin": 2270, "whiff": 23.5, "hbrk":  6.8, "vbrk": 13.2, "ext": 6.3},
     "SI": {"velo": 93.2, "spin": 2090, "whiff": 16.1, "hbrk": 12.5, "vbrk":  5.4, "ext": 6.2},
@@ -424,6 +440,44 @@ details > div {
 .dash-divider { height: 1px; background: #1e2535; margin: 28px 0; border: none; }
 .citation { color: #5a6478 !important; font-size: .73rem !important; line-height: 1.45; }
 .stCaption, [data-testid="stCaptionContainer"] p { color: #718096 !important; font-size: .76rem !important; }
+
+/* ── Alerts (st.info/warning/error/success) — force light text ────── */
+[data-testid="stAlert"],
+[data-testid="stAlert"] p,
+[data-testid="stAlert"] div,
+[data-testid="stAlert"] span {
+    color: #e2e8f0 !important;
+}
+
+/* ── Sliders: value bubble / min-max tick labels ───────────────────── */
+[data-testid="stSlider"] div,
+[data-testid="stSlider"] span,
+[data-testid="stSlider"] label,
+[data-testid="stTickBarMin"],
+[data-testid="stTickBarMax"],
+[data-testid="stThumbValue"] {
+    color: #e2e8f0 !important;
+}
+
+/* ── Metrics (st.metric, if used) ──────────────────────────────────── */
+[data-testid="stMetricValue"],
+[data-testid="stMetricLabel"],
+[data-testid="stMetricDelta"] {
+    color: #e2e8f0 !important;
+}
+
+/* ── Number input spinner value ─────────────────────────────────────── */
+[data-testid="stNumberInput"] input,
+[data-testid="stNumberInput"] label {
+    color: #e2e8f0 !important;
+}
+
+/* ── Multiselect / selectbox placeholder + selected value text ─────── */
+[data-baseweb="select"] [title],
+[data-baseweb="popover"] li,
+[data-baseweb="popover"] li * {
+    color: #e2e8f0 !important;
+}
 
 @media (max-width: 768px) {
     [data-testid="column"] { min-width: 100% !important; flex: 100% !important; }
@@ -1913,6 +1967,16 @@ def generate_matchup_plan(
 
 ALL_YEARS = (2024, 2025, 2026)
 
+# FIX: season selectors across the app used to offer ALL_YEARS (hardcoded
+# 2024/2025/2026) or whatever years happened to be baked into a possibly
+# stale precomputed zone_stats_agg.parquet, regardless of whether the raw
+# monthly statcast_{year}_{month}.parquet files for that year were still
+# actually present in the repo. Selecting a year with no backing raw data
+# (e.g. after deleting a season to save space) then broke downstream
+# per-zone/movement drill-downs. Every season selector below should use
+# this instead — it always reflects what raw data actually exists on disk.
+AVAILABLE_STATCAST_YEARS = sorted(STATCAST_FILES.keys()) or list(ALL_YEARS)
+
 with st.spinner("📋  Loading pitching stats…"):
     _pitching_df = load_pitching_stats(ALL_YEARS)
 
@@ -1959,6 +2023,29 @@ with st.sidebar:
         '</div>',
         unsafe_allow_html=True,
     )
+
+    st.markdown(
+        '<div style="color:#79b8ff;font-weight:600;font-size:.86rem;margin-bottom:5px;">⚾ Pitch Type Guide</div>',
+        unsafe_allow_html=True,
+    )
+    _pitch_guide_html = ""
+    for _pt_code, _pt_name in PITCH_LONG.items():
+        _av = MLB_AVG.get(_pt_code)
+        _color = PITCH_COLORS.get(_pt_code, "#94a3b8")
+        _desc = PITCH_DESCRIPTIONS.get(_pt_code, "")
+        _move = f'{_av["hbrk"]:+.1f}" H · {_av["vbrk"]:+.1f}" V' if _av else "—"
+        _pitch_guide_html += (
+            f'<div style="padding:5px 0;border-bottom:1px solid #1e253570;">'
+            f'<div style="display:flex;align-items:center;gap:8px;">'
+            f'<div style="width:9px;height:9px;border-radius:50%;background:{_color};flex-shrink:0;"></div>'
+            f'<div style="font-size:.76rem;color:#c4cdd8;font-weight:600;flex:1;">{_pt_name} '
+            f'<span style="color:#5a6478;font-weight:400;">({_pt_code})</span></div>'
+            f'<div style="font-family:JetBrains Mono,monospace;font-size:.66rem;color:#63b3ff;white-space:nowrap;">{_move}</div>'
+            f'</div>'
+            f'<div style="font-size:.68rem;color:#8892a4;margin:2px 0 0 17px;line-height:1.35;">{_desc}</div>'
+            f'</div>'
+        )
+    st.markdown(f'<div class="ref-card">{_pitch_guide_html}</div>', unsafe_allow_html=True)
 
     st.markdown(
         '<div style="color:#79b8ff;font-weight:600;font-size:.86rem;margin-bottom:5px;">💪 Arm Slot Guide</div>',
@@ -2480,6 +2567,9 @@ with tab_main:
         st.stop()
 
     _pt_opts = ["All"] + sorted(_zone_df["pitch_type"].dropna().unique().tolist())
+    # Only keep precomputed rows for years that still have raw data backing
+    # them, so stale entries from a deleted season can't be selected.
+    _zone_df = _zone_df[_zone_df["game_year"].isin(AVAILABLE_STATCAST_YEARS)]
     _yr_opts = sorted(_zone_df["game_year"].dropna().unique().astype(int).tolist())
 
     r1 = st.columns([1,1,1,1,1,2])
@@ -2710,30 +2800,48 @@ with tab_main:
             if ph_x  != "All": _ttl_x += f"  P:{ph_x}HP"
             if bh_x  != "All": _ttl_x += f"  B:{bh_x}HB"
 
-            fig_x = draw_heatmap(_df_x, st_x, _ttl_x)
-            st.pyplot(fig_x, width="stretch")
-            plt.close(fig_x)
+            # Same layout as the main dashboard heatmap above: heatmap
+            # on the left, single-zone sub-zone panel (with its own zone
+            # + stat selectors) on the right.
+            _cmp_hm_col, _cmp_sz_col = st.columns([5, 4], gap="medium")
 
-            sz_stat_cmp = st.selectbox(
-                f"Sub-zone stat ({lbl}):",
-                STAT_LABELS,
-                key=f"{pfx}_sz_stat",
-            )
-            with st.spinner(f"Sub-zone grid {lbl}…"):
-                _raw_cmp = load_raw_for_subzones(
-                    years=tuple(yr_m), pitch_type=pt_x, p_throws=ph_x,
-                    stand=bh_x, count_state=cnt_x,
-                    velo_min=60.0, velo_max=105.0,
-                    spin_min=800.0, spin_max=3600.0,
-                    hbrk_min=-22.0, hbrk_max=22.0,
-                    vbrk_min=-18.0, vbrk_max=22.0,
+            with _cmp_hm_col:
+                fig_x = draw_heatmap(_df_x, st_x, _ttl_x)
+                st.pyplot(fig_x, width="stretch")
+                plt.close(fig_x)
+
+            with _cmp_sz_col:
+                st.markdown(
+                    f'<div style="color:#79b8ff;font-weight:600;font-size:.9rem;margin-bottom:6px;">'
+                    f'Sub-Zone Breakdown ({lbl})</div>',
+                    unsafe_allow_html=True,
                 )
-            if not _raw_cmp.empty:
-                fig_sz_cmp = draw_all_subzones_grid(_raw_cmp, sz_stat_cmp)
-                st.pyplot(fig_sz_cmp, width="stretch")
-                plt.close(fig_sz_cmp)
-            else:
-                st.info("No sub-zone data for this config.")
+                sz_zone_cmp = st.selectbox(
+                    "Zone:",
+                    list(range(1, 10)),
+                    format_func=lambda z: f"Zone {z}",
+                    key=f"{pfx}_sz_zone",
+                )
+                sz_stat_cmp = st.selectbox(
+                    "Sub-zone statistic:",
+                    STAT_LABELS,
+                    key=f"{pfx}_sz_stat",
+                )
+                with st.spinner(f"Sub-zone data {lbl}…"):
+                    _raw_cmp = load_raw_for_subzones(
+                        years=tuple(yr_m), pitch_type=pt_x, p_throws=ph_x,
+                        stand=bh_x, count_state=cnt_x,
+                        velo_min=60.0, velo_max=105.0,
+                        spin_min=800.0, spin_max=3600.0,
+                        hbrk_min=-22.0, hbrk_max=22.0,
+                        vbrk_min=-18.0, vbrk_max=22.0,
+                    )
+                if not _raw_cmp.empty:
+                    fig_sz_cmp = draw_subzone_panel(_raw_cmp, sz_zone_cmp, sz_stat_cmp)
+                    st.pyplot(fig_sz_cmp, width="stretch")
+                    plt.close(fig_sz_cmp)
+                else:
+                    st.info("No sub-zone data for this config.")
 
     st.markdown('<div class="dash-divider"></div>', unsafe_allow_html=True)
     st.markdown(f'<div class="citation">{BR_CITATION}</div>', unsafe_allow_html=True)
@@ -3126,8 +3234,8 @@ with tab_pitcher:
     with sel_c2:
         p_season_sel = st.selectbox(
             "Season",
-            list(ALL_YEARS),
-            index=1,
+            AVAILABLE_STATCAST_YEARS,
+            index=min(1, len(AVAILABLE_STATCAST_YEARS) - 1),
             key="p_season_sel",
         )
     with sel_c3:
@@ -3330,7 +3438,7 @@ with tab_pitcher:
         with vb_c1:
             vb_team = st.selectbox("Opposing team", ["—"] + sorted(_all_teams), key="vb_team2")
         with vb_c2:
-            vb_season = st.selectbox("Batter data season", list(ALL_YEARS), index=1, key="vb_season2")
+            vb_season = st.selectbox("Batter data season", AVAILABLE_STATCAST_YEARS, index=min(1, len(AVAILABLE_STATCAST_YEARS)-1), key="vb_season2")
         with vb_c3:
             if vb_team == "—":
                 _vb_bat_list = _batter_disp_list[:300]
@@ -3832,8 +3940,8 @@ with tab_batter:
     with bs_c2:
         bs_season_sel = st.selectbox(
             "Season",
-            list(ALL_YEARS),
-            index=1,
+            AVAILABLE_STATCAST_YEARS,
+            index=min(1, len(AVAILABLE_STATCAST_YEARS) - 1),
             key="bs_season_sel",
         )
     with bs_c3:
