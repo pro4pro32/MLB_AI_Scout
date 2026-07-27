@@ -83,9 +83,9 @@ PITCHING_FILES = {
 }
 
 BR_CITATION = (
-    "Data from Baseball Reference and Statcast. "
-    "When using Baseball-Reference data, please cite us: "
-    "https://www.baseball-reference.com/"
+    "Season pitching stats: Sports Reference LLC, Baseball-Reference.com — "
+    "Major League Statistics and Information. https://www.baseball-reference.com/. "
+    "Pitch-level data: Baseball Savant / MLB Advanced Media, https://baseballsavant.mlb.com/."
 )
 
 # Columns we need when loading statcast per-entity
@@ -1018,7 +1018,7 @@ def build_pitcher_selectbox(pitcher_meta: dict) -> tuple:
 def build_batter_selectbox(batter_meta: dict) -> tuple:
     dm = {}
     for bid, meta in batter_meta.items():
-        name = meta.get("name") or f"Batter #{bid}"
+        name = meta.get("name") if pd.notna(meta.get("name")) else f"Batter #{bid}"
         team = meta.get("team", "?")
         stand= meta.get("stand", "?")
         key  = f"{name}  ({team} · {'RHB' if stand=='R' else 'LHB' if stand=='L' else stand})"
@@ -2622,85 +2622,98 @@ with tab_main:
         plt.close(fig_m)
 
     with col_sz:
-        st.markdown(
-            f'<div style="color:#79b8ff;font-weight:600;font-size:.9rem;margin-bottom:6px;">'
-            f'Sub-Zone Breakdown — {stat_m}</div>',
-            unsafe_allow_html=True,
+        _show_sz_main = st.checkbox(
+            "🔬 Show sub-zone breakdown (loads extra raw data)",
+            value=False, key="show_sz_main",
         )
+        _raw_for_sz = pd.DataFrame()
 
-        sz_zone_m = st.selectbox(
-            "Select zone for detailed sub-zone view:",
-            list(range(1,10)),
-            format_func=lambda z: f"Zone {z}",
-            key="sz_zone_m_main"
-        )
-        sz_stat_m = st.selectbox(
-            "Sub-zone statistic:",
-            STAT_LABELS,
-            key="sz_stat_m_main",
-        )
-
-        if _has_mvmt and not _raw_m.empty:
-            _raw_for_sz = _raw_m
+        if not _show_sz_main:
+            st.caption(
+                "Sub-zone view is hidden. Enable the checkbox above to see "
+                "the 2×2 quadrant breakdown for a specific zone (this loads "
+                "additional raw pitch-level data)."
+            )
         else:
-            with st.spinner("Loading sub-zone data..."):
-                _raw_for_sz = load_raw_for_subzones(
-                    years=tuple(yr_m), pitch_type=pt_m, p_throws=ph_m,
-                    stand=bh_m, count_state=cnt_m,
-                    velo_min=60, velo_max=105, spin_min=800, spin_max=3600,
-                    hbrk_min=-22, hbrk_max=22, vbrk_min=-18, vbrk_max=22
-                )
+            st.markdown(
+                f'<div style="color:#79b8ff;font-weight:600;font-size:.9rem;margin-bottom:6px;">'
+                f'Sub-Zone Breakdown — {stat_m}</div>',
+                unsafe_allow_html=True,
+            )
 
-        if not _raw_for_sz.empty:
-            fig_sz = draw_subzone_panel(_raw_for_sz, sz_zone_m, sz_stat_m)
-            st.pyplot(fig_sz, width="stretch")
-            plt.close(fig_sz)
+            sz_zone_m = st.selectbox(
+                "Select zone for detailed sub-zone view:",
+                list(range(1,10)),
+                format_func=lambda z: f"Zone {z}",
+                key="sz_zone_m_main"
+            )
+            sz_stat_m = st.selectbox(
+                "Sub-zone statistic:",
+                STAT_LABELS,
+                key="sz_stat_m_main",
+            )
 
-            _sz_data = _raw_for_sz[_raw_for_sz["zone"] == sz_zone_m].copy()
-            if not _sz_data.empty and "plate_x" in _sz_data.columns:
-                _sz_data["sub"] = _sz_data.apply(
-                    lambda r: classify_subzone(
-                        float(r["plate_x"]) if not pd.isna(r["plate_x"]) else 0.0,
-                        float(r["plate_z"]) if not pd.isna(r["plate_z"]) else 2.5,
-                        sz_zone_m,
-                    ), axis=1,
-                )
-                if "is_swing" not in _sz_data.columns:
-                    _sz_data = _add_flags(_sz_data)
-                if "hbrk" not in _sz_data.columns and "pfx_x" in _sz_data.columns:
-                    _sz_data["hbrk"] = pd.to_numeric(_sz_data["pfx_x"], errors="coerce") * 12
-                if "vbrk" not in _sz_data.columns and "pfx_z" in _sz_data.columns:
-                    _sz_data["vbrk"] = pd.to_numeric(_sz_data["pfx_z"], errors="coerce") * 12
+            if _has_mvmt and not _raw_m.empty:
+                _raw_for_sz = _raw_m
+            else:
+                with st.spinner("Loading sub-zone data..."):
+                    _raw_for_sz = load_raw_for_subzones(
+                        years=tuple(yr_m), pitch_type=pt_m, p_throws=ph_m,
+                        stand=bh_m, count_state=cnt_m,
+                        velo_min=60, velo_max=105, spin_min=800, spin_max=3600,
+                        hbrk_min=-22, hbrk_max=22, vbrk_min=-18, vbrk_max=22
+                    )
 
-                _sz_tbl = _sz_data.groupby("sub", as_index=False).agg(
-                    Pitches = ("is_swing",  "count"),
-                    Swing_p = ("is_swing",  "mean"),
-                    Whiff_p = ("is_whiff",  "mean"),
-                    xwOBA   = ("estimated_woba_using_speedangle", "mean"),
-                    EV      = ("launch_speed", "mean"),
-                    Spin    = ("release_spin_rate", "mean"),
-                    HBreak  = ("hbrk", "mean"),
-                    VBreak  = ("vbrk", "mean"),
-                )
-                _sz_tbl["Swing%"]  = (_sz_tbl["Swing_p"] * 100).round(1)
-                _sz_tbl["Whiff%"]  = (_sz_tbl["Whiff_p"] * 100).round(1)
-                _sz_tbl["xwOBA"]   = _sz_tbl["xwOBA"].round(3)
-                _sz_tbl["EV"]      = _sz_tbl["EV"].round(1)
-                _sz_tbl["Spin"]    = _sz_tbl["Spin"].round(0)
-                _sz_tbl["HBreak"]  = _sz_tbl["HBreak"].round(1)
-                _sz_tbl["VBreak"]  = _sz_tbl["VBreak"].round(1)
+            if not _raw_for_sz.empty:
+                fig_sz = draw_subzone_panel(_raw_for_sz, sz_zone_m, sz_stat_m)
+                st.pyplot(fig_sz, width="stretch")
+                plt.close(fig_sz)
 
-                final_cols = ["sub", "Pitches", "Swing%", "Whiff%",
-                              "xwOBA", "EV", "Spin", "HBreak", "VBreak"]
-                _sz_tbl = _sz_tbl[[c for c in final_cols if c in _sz_tbl.columns]]
-                _sz_tbl = _sz_tbl.rename(columns={
-                    "sub": "Quadrant", "HBreak": "H-Brk\"", "VBreak": "V-Brk\""
-                })
-                st.dataframe(
-                    _sz_tbl.set_index("Quadrant"),
-                    width="stretch",
-                    height=200,
-                )
+                _sz_data = _raw_for_sz[_raw_for_sz["zone"] == sz_zone_m].copy()
+                if not _sz_data.empty and "plate_x" in _sz_data.columns:
+                    _sz_data["sub"] = _sz_data.apply(
+                        lambda r: classify_subzone(
+                            float(r["plate_x"]) if not pd.isna(r["plate_x"]) else 0.0,
+                            float(r["plate_z"]) if not pd.isna(r["plate_z"]) else 2.5,
+                            sz_zone_m,
+                        ), axis=1,
+                    )
+                    if "is_swing" not in _sz_data.columns:
+                        _sz_data = _add_flags(_sz_data)
+                    if "hbrk" not in _sz_data.columns and "pfx_x" in _sz_data.columns:
+                        _sz_data["hbrk"] = pd.to_numeric(_sz_data["pfx_x"], errors="coerce") * 12
+                    if "vbrk" not in _sz_data.columns and "pfx_z" in _sz_data.columns:
+                        _sz_data["vbrk"] = pd.to_numeric(_sz_data["pfx_z"], errors="coerce") * 12
+
+                    _sz_tbl = _sz_data.groupby("sub", as_index=False).agg(
+                        Pitches = ("is_swing",  "count"),
+                        Swing_p = ("is_swing",  "mean"),
+                        Whiff_p = ("is_whiff",  "mean"),
+                        xwOBA   = ("estimated_woba_using_speedangle", "mean"),
+                        EV      = ("launch_speed", "mean"),
+                        Spin    = ("release_spin_rate", "mean"),
+                        HBreak  = ("hbrk", "mean"),
+                        VBreak  = ("vbrk", "mean"),
+                    )
+                    _sz_tbl["Swing%"]  = (_sz_tbl["Swing_p"] * 100).round(1)
+                    _sz_tbl["Whiff%"]  = (_sz_tbl["Whiff_p"] * 100).round(1)
+                    _sz_tbl["xwOBA"]   = _sz_tbl["xwOBA"].round(3)
+                    _sz_tbl["EV"]      = _sz_tbl["EV"].round(1)
+                    _sz_tbl["Spin"]    = _sz_tbl["Spin"].round(0)
+                    _sz_tbl["HBreak"]  = _sz_tbl["HBreak"].round(1)
+                    _sz_tbl["VBreak"]  = _sz_tbl["VBreak"].round(1)
+
+                    final_cols = ["sub", "Pitches", "Swing%", "Whiff%",
+                                  "xwOBA", "EV", "Spin", "HBreak", "VBreak"]
+                    _sz_tbl = _sz_tbl[[c for c in final_cols if c in _sz_tbl.columns]]
+                    _sz_tbl = _sz_tbl.rename(columns={
+                        "sub": "Quadrant", "HBreak": "H-Brk\"", "VBreak": "V-Brk\""
+                    })
+                    st.dataframe(
+                        _sz_tbl.set_index("Quadrant"),
+                        width="stretch",
+                        height=200,
+                    )
 
     st.markdown('<div class="dash-divider"></div>', unsafe_allow_html=True)
     st.markdown(f'<div class="citation">{BR_CITATION}</div>', unsafe_allow_html=True)
@@ -2811,37 +2824,44 @@ with tab_main:
                 plt.close(fig_x)
 
             with _cmp_sz_col:
-                st.markdown(
-                    f'<div style="color:#79b8ff;font-weight:600;font-size:.9rem;margin-bottom:6px;">'
-                    f'Sub-Zone Breakdown ({lbl})</div>',
-                    unsafe_allow_html=True,
+                _show_sz_cmp = st.checkbox(
+                    "🔬 Show sub-zone breakdown",
+                    value=False, key=f"{pfx}_show_sz",
                 )
-                sz_zone_cmp = st.selectbox(
-                    "Zone:",
-                    list(range(1, 10)),
-                    format_func=lambda z: f"Zone {z}",
-                    key=f"{pfx}_sz_zone",
-                )
-                sz_stat_cmp = st.selectbox(
-                    "Sub-zone statistic:",
-                    STAT_LABELS,
-                    key=f"{pfx}_sz_stat",
-                )
-                with st.spinner(f"Sub-zone data {lbl}…"):
-                    _raw_cmp = load_raw_for_subzones(
-                        years=tuple(yr_m), pitch_type=pt_x, p_throws=ph_x,
-                        stand=bh_x, count_state=cnt_x,
-                        velo_min=60.0, velo_max=105.0,
-                        spin_min=800.0, spin_max=3600.0,
-                        hbrk_min=-22.0, hbrk_max=22.0,
-                        vbrk_min=-18.0, vbrk_max=22.0,
-                    )
-                if not _raw_cmp.empty:
-                    fig_sz_cmp = draw_subzone_panel(_raw_cmp, sz_zone_cmp, sz_stat_cmp)
-                    st.pyplot(fig_sz_cmp, width="stretch")
-                    plt.close(fig_sz_cmp)
+                if not _show_sz_cmp:
+                    st.caption("Sub-zone view hidden for this config.")
                 else:
-                    st.info("No sub-zone data for this config.")
+                    st.markdown(
+                        f'<div style="color:#79b8ff;font-weight:600;font-size:.9rem;margin-bottom:6px;">'
+                        f'Sub-Zone Breakdown ({lbl})</div>',
+                        unsafe_allow_html=True,
+                    )
+                    sz_zone_cmp = st.selectbox(
+                        "Zone:",
+                        list(range(1, 10)),
+                        format_func=lambda z: f"Zone {z}",
+                        key=f"{pfx}_sz_zone",
+                    )
+                    sz_stat_cmp = st.selectbox(
+                        "Sub-zone statistic:",
+                        STAT_LABELS,
+                        key=f"{pfx}_sz_stat",
+                    )
+                    with st.spinner(f"Sub-zone data {lbl}…"):
+                        _raw_cmp = load_raw_for_subzones(
+                            years=tuple(yr_m), pitch_type=pt_x, p_throws=ph_x,
+                            stand=bh_x, count_state=cnt_x,
+                            velo_min=60.0, velo_max=105.0,
+                            spin_min=800.0, spin_max=3600.0,
+                            hbrk_min=-22.0, hbrk_max=22.0,
+                            vbrk_min=-18.0, vbrk_max=22.0,
+                        )
+                    if not _raw_cmp.empty:
+                        fig_sz_cmp = draw_subzone_panel(_raw_cmp, sz_zone_cmp, sz_stat_cmp)
+                        st.pyplot(fig_sz_cmp, width="stretch")
+                        plt.close(fig_sz_cmp)
+                    else:
+                        st.info("No sub-zone data for this config.")
 
     st.markdown('<div class="dash-divider"></div>', unsafe_allow_html=True)
     st.markdown(f'<div class="citation">{BR_CITATION}</div>', unsafe_allow_html=True)
@@ -2913,6 +2933,85 @@ def build_pitcher_team_roster(pitching_df: pd.DataFrame,
     return roster
 
 
+@st.cache_data(ttl=7200, show_spinner=False)
+def build_batter_team_roster(
+    batter_meta: dict,
+    all_years: tuple = (2024, 2025, 2026),
+) -> dict:
+    """
+    Build {season: {team: [display_str, ...]}} for batters.
+    Used by both the Batter Scout tab and the Pitcher-vs-Batter matchup
+    section in Pitcher Scout, so it's defined here (before either tab)
+    rather than inline in one specific tab.
+    """
+    roster: dict = {}
+
+    rev_map: dict = {}
+    for disp, bid in _batter_disp_map.items():
+        rev_map[bid] = disp
+
+    meta_path = DATA_DIR / "meta_batters.parquet"
+    if meta_path.exists():
+        mb = pd.read_parquet(meta_path, engine="pyarrow")
+        for _, row in mb.iterrows():
+            bid    = int(row["batter_id"])
+            season = int(row["season"])
+            team   = str(row["team"])
+            disp   = rev_map.get(bid)
+            if disp:
+                roster.setdefault(season, {}).setdefault(team, [])
+                if disp not in roster[season][team]:
+                    roster[season][team].append(disp)
+        for season in roster:
+            for team in roster[season]:
+                roster[season][team] = sorted(set(roster[season][team]))
+        return roster
+
+    for yr in all_years:
+        if yr not in STATCAST_FILES:
+            continue
+        parts_bt = []
+        for path in STATCAST_FILES[yr]:
+            if not path.exists():
+                continue
+            try:
+                meta_cols = ["batter","home_team","away_team","inning_topbot"]
+                if PYARROW_OK:
+                    sc = set(pq.read_schema(str(path)).names)
+                    use_cols = [c for c in meta_cols if c in sc]
+                else:
+                    use_cols = meta_cols
+                df_tmp = pd.read_parquet(path, engine="pyarrow", columns=use_cols)
+                parts_bt.append(df_tmp)
+            except Exception:
+                continue
+
+        if not parts_bt:
+            continue
+        df = pd.concat(parts_bt, ignore_index=True)
+        df["batter_team"] = np.where(
+            df["inning_topbot"] == "Top",
+            df["away_team"],
+            df["home_team"],
+        )
+        bt = (df[["batter","batter_team"]]
+              .dropna(subset=["batter_team"])
+              .drop_duplicates())
+        for _, row in bt.iterrows():
+            bid  = int(row["batter"])
+            team = str(row["batter_team"])
+            disp = rev_map.get(bid)
+            if disp:
+                roster.setdefault(yr, {}).setdefault(team, [])
+                if disp not in roster[yr][team]:
+                    roster[yr][team].append(disp)
+
+    for season in roster:
+        for team in roster[season]:
+            roster[season][team] = sorted(set(roster[season][team]))
+    return roster
+
+
 def generate_detailed_matchup_plan(
     pitcher_name: str,
     pitcher_hand: str,
@@ -2973,16 +3072,16 @@ def generate_detailed_matchup_plan(
     if not batter_pt_stats.empty and "pitch_type" in batter_pt_stats.columns:
         for _, row in batter_pt_stats.iterrows():
             pt_vuln[row["pitch_type"]] = {
-                "whiff":  float(row.get("whiff_pct",0) or 0),
-                "xwoba":  float(row.get("avg_xwoba",0.320) or 0.320),
-                "total":  int(row.get("total",0) or 0),
-                "velo":   float(row.get("avg_velo",0) or 0),
+                "whiff":  safe_num(row.get("whiff_pct"), 0.0),
+                "xwoba":  safe_num(row.get("avg_xwoba"), 0.320),
+                "total":  int(safe_num(row.get("total"), 0)),
+                "velo":   safe_num(row.get("avg_velo"), 0.0),
             }
 
     ranked_pitches = []
     for _, r in arsenal_df.iterrows():
         pt    = r["pitch_type"]
-        p_wh  = float(r.get("whiff", 0) or 0)
+        p_wh  = safe_num(r.get("whiff"), 0.0)
         bvuln = pt_vuln.get(pt, {})
         b_wh  = bvuln.get("whiff", None)
         b_xw  = bvuln.get("xwoba", None)
@@ -2997,7 +3096,7 @@ def generate_detailed_matchup_plan(
         col  = PITCH_COLORS.get(pt, "#94a3b8")
         av   = MLB_AVG.get(pt, {})
         hd   = r.get("avg_h", 0) - av.get("hbrk", 0)
-        use  = float(r.get("usage", 0) or 0)
+        use  = safe_num(r.get("usage"), 0.0)
         box  = "ok-box" if rank == 1 else "insight-box" if rank <= 3 else "ref-card"
 
         html.append(f'<div class="{box}" style="margin:8px 0;">')
@@ -3377,24 +3476,30 @@ with tab_pitcher:
                 st.info("No data for selected filters.")
 
         with hz_col2:
-            _sz_zone_p = st.selectbox(
-                "🔬 Select zone for sub-zone detail:",
-                list(range(1, 10)),
-                format_func=lambda z: {
-                    1:"Zone 1 (Top-In)",2:"Zone 2 (Top-Mid)",3:"Zone 3 (Top-Out)",
-                    4:"Zone 4 (Mid-In)",5:"Zone 5 (Center)",6:"Zone 6 (Mid-Out)",
-                    7:"Zone 7 (Bot-In)",8:"Zone 8 (Bot-Mid)",9:"Zone 9 (Bot-Out)",
-                }.get(z, str(z)),
-                key="sz_zone_p2",
+            _show_sz_p = st.checkbox(
+                "🔬 Show sub-zone breakdown", value=False, key="show_sz_p2",
             )
-            _sz_stat_p = st.selectbox("Sub-zone stat:", STAT_LABELS, key="sz_stat_p2")
-
-            if not _dff.empty:
-                fig_sz_p = draw_subzone_panel(_dff, _sz_zone_p, _sz_stat_p)
-                st.pyplot(fig_sz_p, width="stretch")
-                plt.close(fig_sz_p)
+            if not _show_sz_p:
+                st.caption("Sub-zone view hidden. Enable the checkbox to see per-quadrant detail for a zone.")
             else:
-                st.info("No filtered data for sub-zone analysis.")
+                _sz_zone_p = st.selectbox(
+                    "Select zone for sub-zone detail:",
+                    list(range(1, 10)),
+                    format_func=lambda z: {
+                        1:"Zone 1 (Top-In)",2:"Zone 2 (Top-Mid)",3:"Zone 3 (Top-Out)",
+                        4:"Zone 4 (Mid-In)",5:"Zone 5 (Center)",6:"Zone 6 (Mid-Out)",
+                        7:"Zone 7 (Bot-In)",8:"Zone 8 (Bot-Mid)",9:"Zone 9 (Bot-Out)",
+                    }.get(z, str(z)),
+                    key="sz_zone_p2",
+                )
+                _sz_stat_p = st.selectbox("Sub-zone stat:", STAT_LABELS, key="sz_stat_p2")
+
+                if not _dff.empty:
+                    fig_sz_p = draw_subzone_panel(_dff, _sz_zone_p, _sz_stat_p)
+                    st.pyplot(fig_sz_p, width="stretch")
+                    plt.close(fig_sz_p)
+                else:
+                    st.info("No filtered data for sub-zone analysis.")
 
         if not _hz_zdf.empty:
             with st.expander("📋 Zone Summary Table", expanded=False):
@@ -3440,17 +3545,28 @@ with tab_pitcher:
         with vb_c2:
             vb_season = st.selectbox("Batter data season", AVAILABLE_STATCAST_YEARS, index=min(1, len(AVAILABLE_STATCAST_YEARS)-1), key="vb_season2")
         with vb_c3:
+            # FIX: this used to filter batters by team only (via the flat
+            # _batter_meta dict, which keeps just ONE arbitrary season's
+            # team per batter), completely ignoring the selected season —
+            # so batters who never played that team/season combo still
+            # showed up, and loading them for that season returned nothing.
+            # Now it looks up the same {season: {team: [...]}} roster
+            # built correctly for the Batter Scout tab.
+            if "_batter_team_roster" not in st.session_state:
+                with st.spinner("Building batter team roster…"):
+                    st.session_state["_batter_team_roster"] = build_batter_team_roster(
+                        _batter_meta, ALL_YEARS
+                    )
+            _vb_roster = st.session_state["_batter_team_roster"]
+
             if vb_team == "—":
-                _vb_bat_list = _batter_disp_list[:300]
+                _vb_bat_list = sorted(set().union(
+                    *_vb_roster.get(vb_season, {}).values()
+                )) if _vb_roster.get(vb_season) else _batter_disp_list[:300]
             else:
-                _vb_bat_list = [
-                    disp for disp, bid in _batter_disp_map.items()
-                    if _batter_meta.get(bid, {}).get("team") == vb_team
-                ]
-                _vb_bat_list = sorted(_vb_bat_list)
+                _vb_bat_list = sorted(_vb_roster.get(vb_season, {}).get(vb_team, []))
                 if not _vb_bat_list:
-                    st.caption(f"No batters found for {vb_team}. Showing all.")
-                    _vb_bat_list = _batter_disp_list[:300]
+                    st.caption(f"No batters found for {vb_team} in {vb_season}.")
 
             vb_batters = st.multiselect(
                 "Select batters (max 5)",
@@ -3568,47 +3684,195 @@ with tab_pitcher:
     st.markdown(f'<div class="citation">{BR_CITATION}</div>', unsafe_allow_html=True)
 
 
+
 # ─────────────────────────────────────────────────────────────────────
-# TAB 3 — TOP 10 REBUILD
+# TAB 3 HELPERS — real arsenal-based "poor pitch mixing" ranking
+# ─────────────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=7200, show_spinner=False)
+def build_pitcher_name_index(pitcher_meta: dict) -> tuple:
+    """
+    Index Statcast pitcher_meta by last name for fast Baseball-Reference
+    name -> Statcast pitcher_id matching (shared by the ranking pass below
+    and the per-pitcher "Load Live Statcast" lookup).
+    """
+    rev_lower: dict = {}
+    by_last: dict = {}
+    for pid, meta in pitcher_meta.items():
+        raw = meta.get("name", "")
+        parts = raw.split(",")
+        if len(parts) == 2:
+            fn, ln = parts[1].strip(), parts[0].strip()
+        else:
+            fn, ln = "", raw.strip()
+        full_lower = f"{fn} {ln}".strip().lower()
+        rev_lower[full_lower] = pid
+        last_word = ln.lower().split()[-1] if ln else ""
+        by_last.setdefault(last_word, []).append((full_lower, pid))
+    return rev_lower, by_last
+
+
+def match_br_name_to_pid(name_raw: str, rev_lower: dict, by_last: dict):
+    """Match a Baseball-Reference 'First Last' name to a Statcast pitcher_id."""
+    key = str(name_raw).strip().lower()
+    if not key:
+        return None
+    if key in rev_lower:
+        return rev_lower[key]
+    words = key.split()
+    last = words[-1]
+    first = words[0] if len(words) > 1 else ""
+    for full_lower, pid in by_last.get(last, []):
+        if first and first in full_lower:
+            return pid
+    return None
+
+
+def compute_arsenal_utilization(ars: pd.DataFrame) -> tuple:
+    """
+    Score how well a pitcher is actually using/mixing their real Statcast
+    arsenal (0-100, higher = more room to improve via arsenal/sequencing
+    changes). Unlike the old score, every signal here comes from real
+    per-pitch-type usage and movement data — not season-level results.
+
+    Returns (score, reasons_list).
+    """
+    if ars is None or ars.empty:
+        return 0.0, ["No Statcast arsenal data available for this pitcher/season."]
+
+    score = 0.0
+    reasons = []
+
+    real_pitches = ars[ars["usage"] >= 5.0]
+    n_pitches = len(real_pitches)
+    if n_pitches <= 2:
+        score += 25
+        reasons.append(f"Only {n_pitches} pitch(es) with real usage (≥5%) — very limited mix.")
+    elif n_pitches == 3:
+        score += 10
+        reasons.append("Only 3 pitches in regular rotation — a 4th weapon could add deception.")
+
+    ranked = ars.dropna(subset=["whiff"])
+    ranked = ranked[ranked["count"] >= 10]
+    if not ranked.empty:
+        best = ranked.sort_values("whiff", ascending=False).iloc[0]
+        bn = best.get("pitch_name", best["pitch_type"])
+        if best["usage"] < 15:
+            score += 20
+            reasons.append(
+                f"{bn} is the best whiff pitch ({best['whiff']:.1f}%) but only "
+                f"{best['usage']:.1f}% usage — clearly underused."
+            )
+        elif best["usage"] < 20:
+            score += 8
+            reasons.append(
+                f"{bn} ({best['whiff']:.1f}% whiff) could see more than "
+                f"{best['usage']:.1f}% usage, especially in 2-strike counts."
+            )
+
+    fb_usage = ars[ars["pitch_type"].isin(["FF","SI","FC"])]["usage"].sum()
+    if fb_usage > 65:
+        score += 15
+        reasons.append(f"{fb_usage:.1f}% fastballs (FF/SI/FC) — batters can sit on the heater.")
+    elif fb_usage > 55:
+        score += 6
+        reasons.append(f"{fb_usage:.1f}% fastball usage is on the higher side.")
+
+    real_types = set(real_pitches["pitch_type"])
+    has_brk = any(pt in ["SL","ST","CU","KC","SV"] for pt in real_types)
+    has_off = any(pt in ["CH","FS","SV"] for pt in real_types)
+    if not has_brk:
+        score += 15
+        reasons.append("No breaking ball with real usage — 2-strike arsenal is limited.")
+    if not has_off:
+        score += 10
+        reasons.append("No offspeed pitch with real usage — vulnerable vs. opposite-handed batters.")
+
+    tunnels = 0
+    rows = list(ars.iterrows())
+    for i in range(len(rows)):
+        for j in range(i + 1, len(rows)):
+            r1, r2 = rows[i][1], rows[j][1]
+            if pd.isna(r1.get("avg_h")) or pd.isna(r2.get("avg_h")):
+                continue
+            hd = abs(r1["avg_h"] - r2["avg_h"])
+            vd = abs(r1["avg_v"] - r2["avg_v"])
+            if (hd < 4 and vd > 8) or (hd > 10 and vd < 5):
+                tunnels += 1
+    if tunnels == 0 and n_pitches >= 2:
+        score += 10
+        reasons.append("No well-tunneled pitch pairs found — sequencing/deception could improve.")
+
+    if not reasons:
+        reasons.append("Arsenal is reasonably well-mixed; limited upside from mix changes alone.")
+
+    return min(round(score, 1), 100), reasons[:4]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# TAB 3 — TOP 10 REBUILD  (rewritten: ranking now driven by REAL Statcast
+# arsenal usage/mix data, not just season-level Baseball-Reference stats)
 # ─────────────────────────────────────────────────────────────────────
 with tab_rebuild:
     st.markdown(
         '<div class="dash-hdr">'
         '<div class="dash-ttl">🏆 Top 10 Arsenal Rebuild Candidates</div>'
-        '<div class="dash-sub">All MLB · Baseball Reference stats 2024–2026 · Fixed scoring (ERA-FIP gap correctly weighted)</div>'
+        '<div class="dash-sub">Ranked by real Statcast pitch-mix data — poor arsenal utilization '
+        'and sequencing, not just season results</div>'
         '</div>',
         unsafe_allow_html=True,
     )
     st.markdown(f'<div class="citation" style="margin-bottom:12px;">{BR_CITATION}</div>',
                 unsafe_allow_html=True)
 
-    with st.expander("ℹ️  How the rebuild score works", expanded=False):
+    with st.expander("ℹ️  How this ranking works", expanded=False):
         st.markdown("""
-**Rebuild Score (0–100)** — higher = more improvement potential through arsenal changes.
+**This ranking is driven by real per-pitch Statcast arsenal data — not just season results.**
 
-| Signal | Weight | Notes |
-|--------|--------|-------|
-| K/9 below 8.5 | up to **28 pts** | Primary arsenal signal |
-| BB/9 above 3.0 | up to **20 pts** | Command/arsenal signal |
-| FIP above 4.0  | up to **20 pts** | Underlying stuff |
-| ERA-FIP gap > 1 **AND** FIP ≥ 4.0 | up to **14 pts** | Both metrics must be bad |
-| ERA-FIP gap > 1 **BUT** FIP < 4.0 | only **3 pts** | → Luck/BABIP, not arsenal |
-| ERA+ below 90 | up to **8 pts** | |
-| HR/9 above 1.6 | up to **10 pts** | |
-| Age ≤ 25 | +6 pts | Higher rebuild upside |
-| Age ≥ 35 | −8 pts | Lower ceiling |
+Step 1 (cheap): Baseball-Reference season stats (FIP, ERA+, K/9, BB/9) are used only to
+build a shortlist of pitchers whose *results* are below average — so we don't waste time
+pulling full Statcast data for pitchers who are already excelling.
+
+Step 2 (the real ranking): for each shortlisted pitcher, the app pulls their actual
+Statcast pitch-by-pitch usage for the selected season and scores **arsenal utilization**
+directly:
+
+| Signal | Points | What it means |
+|---|---|---|
+| ≤2 pitches with real usage (≥5%) | 25 | Very limited mix |
+| 3 pitches only | 10 | Could add a 4th weapon |
+| Best whiff-rate pitch used <15% | 20 | Best weapon is underused |
+| Best whiff-rate pitch used 15-20% | 8 | Could lean on it more |
+| >65% fastballs (FF/SI/FC) | 15 | Predictable, batters sit on it |
+| No breaking ball (≥5% usage) | 15 | Limited 2-strike arsenal |
+| No offspeed pitch (≥5% usage) | 10 | Vulnerable to opposite-handed batters |
+| No well-tunneled pitch pairs | 10 | Sequencing/deception isn't working |
+
+Only pitchers who are actually matched to Statcast data (by name) and have enough pitches
+to analyze are scored. If a shortlisted pitcher can't be matched or has no Statcast rows
+for that season, they're skipped — you'll see how many were skipped after ranking.
         """)
 
     if _pitching_df.empty:
         st.error("⚠️  No pitching_stats parquet files found.")
     else:
         rb_c = st.columns([1, 1, 2, 1])
-        with rb_c[0]: rb_season = st.selectbox("Season", _avail_seasons, index=min(1, len(_avail_seasons)-1), key="rb_yr")
-        with rb_c[1]: rb_minip  = st.number_input("Min IP", 5, 150, value=20, step=5, key="rb_ip")
-        with rb_c[2]: rb_team   = st.text_input("Team filter (e.g. NYY,LAD — blank=all MLB)", key="rb_team")
-        with rb_c[3]: rb_topn   = st.number_input("Show top N", 5, 50, value=10, key="rb_n")
+        with rb_c[0]:
+            rb_season = st.selectbox("Season", _avail_seasons, index=min(1, len(_avail_seasons)-1), key="rb_yr")
+        with rb_c[1]:
+            rb_minip  = st.number_input("Min IP", 5, 150, value=20, step=5, key="rb_ip")
+        with rb_c[2]:
+            rb_team   = st.text_input("Team filter (e.g. NYY,LAD — blank=all MLB)", key="rb_team")
+        with rb_c[3]:
+            rb_topn   = st.number_input("Show top N", 5, 50, value=10, key="rb_n")
 
-        if st.button("🔄  Rank Pitchers", key="rb_go"):
+        rb_cand_n = st.slider(
+            "Candidates to pull real Statcast arsenal data for "
+            "(more = slower but a more thorough search)",
+            min_value=15, max_value=60, value=35, step=5, key="rb_cand_n",
+        )
+
+        if st.button("🔄  Rank Pitchers (pulls real arsenal data)", key="rb_go"):
             _p_df = _pitching_df[_pitching_df["season"] == rb_season].copy()
             if "IP" in _p_df.columns:
                 _p_df = _p_df[pd.to_numeric(_p_df["IP"], errors="coerce") >= rb_minip]
@@ -3621,29 +3885,76 @@ with tab_rebuild:
             if _p_df.empty:
                 st.warning("No pitchers match the criteria.")
             else:
-                _rows = []
-                for _, row in _p_df.iterrows():
-                    sc, rsns, prof, only_luck = rebuild_score(row)
-                    _rows.append({
-                        "name":      row.get("Name", "?"),
-                        "team":      row.get("Team", "?"),
-                        "ip":        safe_num(row.get("IP", 0)),
-                        "era":       safe_num(row.get("ERA")),
-                        "fip":       safe_num(row.get("FIP")),
-                        "era_p":     safe_num(row.get("ERA+")),
-                        "so9":       safe_num(row.get("SO9")),
-                        "bb9":       safe_num(row.get("BB9")),
-                        "hr9":       safe_num(row.get("HR9")),
-                        "whip":      safe_num(row.get("WHIP")),
-                        "age":       safe_num(row.get("Age")),
-                        "score":     sc,
-                        "reasons":   rsns,
-                        "profile":   prof,
-                        "only_luck": only_luck,
+                # ── Step 1: cheap results-based shortlist ──────────────
+                # Keep only pitchers with some sign of below-average
+                # results, so we don't burn time pulling Statcast data
+                # for pitchers who are already excelling.
+                def _below_avg(row):
+                    fip = safe_num(row.get("FIP"))
+                    era_plus = safe_num(row.get("ERA+"))
+                    so9 = safe_num(row.get("SO9"))
+                    bb9 = safe_num(row.get("BB9"))
+                    checks = []
+                    if not np.isnan(fip):      checks.append(fip >= 4.0)
+                    if not np.isnan(era_plus): checks.append(era_plus <= 100)
+                    if not np.isnan(so9):      checks.append(so9 < 8.5)
+                    if not np.isnan(bb9):      checks.append(bb9 > 3.5)
+                    return any(checks) if checks else True
+
+                _shortlist = _p_df[_p_df.apply(_below_avg, axis=1)].copy()
+                if _shortlist.empty:
+                    _shortlist = _p_df.copy()  # fall back rather than show nothing
+
+                # Cheap pre-sort (worst FIP first) purely to decide WHICH
+                # pitchers get the expensive real-arsenal pull, capped at
+                # rb_cand_n candidates.
+                if "FIP" in _shortlist.columns:
+                    _shortlist = _shortlist.sort_values(
+                        "FIP", ascending=False, na_position="last"
+                    )
+                _shortlist = _shortlist.head(int(rb_cand_n))
+
+                # ── Step 2: pull real Statcast arsenal + score it ──────
+                _rev_lower, _by_last = build_pitcher_name_index(_pitcher_meta)
+                _results = []
+                _skipped = 0
+                prog = st.progress(0, text="Pulling real Statcast arsenal data…")
+                _n_cand = len(_shortlist)
+                for i, (_, row) in enumerate(_shortlist.iterrows()):
+                    prog.progress((i + 1) / max(_n_cand, 1),
+                                   text=f"Analyzing arsenal: {row.get('Name','?')} ({i+1}/{_n_cand})")
+                    _pid = match_br_name_to_pid(row.get("Name", ""), _rev_lower, _by_last)
+                    if _pid is None:
+                        _skipped += 1
+                        continue
+                    _raw_p = load_pitcher_data(_pid, rb_season)
+                    if _raw_p.empty:
+                        _skipped += 1
+                        continue
+                    _ars_p, _tot_p, _arm_p, _ext_p, _hand_p = build_pitcher_arsenal(_raw_p)
+                    if _ars_p.empty:
+                        _skipped += 1
+                        continue
+                    _asc, _reasons = compute_arsenal_utilization(_ars_p)
+                    _results.append({
+                        "name": row.get("Name", "?"), "team": row.get("Team", "?"),
+                        "ip": safe_num(row.get("IP", 0)), "era": safe_num(row.get("ERA")),
+                        "fip": safe_num(row.get("FIP")), "era_p": safe_num(row.get("ERA+")),
+                        "so9": safe_num(row.get("SO9")), "bb9": safe_num(row.get("BB9")),
+                        "age": safe_num(row.get("Age")),
+                        "score": _asc, "reasons": _reasons,
+                        "pid": _pid, "ars": _ars_p, "total": _tot_p,
+                        "arm_avg": _arm_p, "ext_avg": _ext_p, "hand": _hand_p,
                     })
-                _rows.sort(key=lambda x: x["score"], reverse=True)
-                st.session_state[f"rb_{rb_season}"] = _rows
-                st.success(f"✅  Ranked {len(_rows)} pitchers")
+                prog.empty()
+
+                _results.sort(key=lambda x: x["score"], reverse=True)
+                st.session_state[f"rb_{rb_season}"] = _results
+                st.success(
+                    f"✅  Analyzed real arsenal data for {len(_results)} pitchers "
+                    f"({_skipped} shortlisted candidates skipped — no Statcast match "
+                    f"or no data for {rb_season})."
+                )
 
         _rb_results = st.session_state.get(f"rb_{rb_season}")
 
@@ -3656,11 +3967,10 @@ with tab_rebuild:
             _summ = [{
                 "#": i+1, "Name": r["name"], "Team": r["team"],
                 "IP": f'{r["ip"]:.0f}',
+                "Arsenal Score": r["score"],
                 "ERA": _fv(r["era"]), "FIP": _fv(r["fip"]),
-                "ERA+": _fv(r["era_p"],"{:.0f}"),
                 "K/9":  _fv(r["so9"]), "BB/9": _fv(r["bb9"]),
-                "WHIP": _fv(r["whip"]), "Age": _fv(r["age"],"{:.0f}"),
-                "Score": r["score"],
+                "Age": _fv(r["age"],"{:.0f}"),
             } for i, r in enumerate(_top)]
             st.dataframe(pd.DataFrame(_summ).set_index("#"),
                          width="stretch", height=400)
@@ -3672,23 +3982,13 @@ with tab_rebuild:
                 bc = "#ef4444" if sc_pct>65 else "#f97316" if sc_pct>45 else "#eab308" if sc_pct>30 else "#22c55e"
 
                 with st.expander(
-                    f"#{rank}  {r['name']}  ({r['team']})  —  Score: {r['score']:.1f}  |  "
+                    f"#{rank}  {r['name']}  ({r['team']})  —  Arsenal Score: {r['score']:.1f}  |  "
                     f"ERA {_fv(r['era'])}  FIP {_fv(r['fip'])}  "
-                    f"ERA+ {_fv(r['era_p'],'{:.0f}')}  "
                     f"K/9 {_fv(r['so9'])}  BB/9 {_fv(r['bb9'])}  IP {r['ip']:.0f}",
                     expanded=(rank <= 3),
                 ):
-                    if r.get("only_luck"):
-                        st.warning(
-                            "⚠️  **This pitcher's score is driven mainly by ERA-FIP gap "
-                            "despite a solid FIP.** "
-                            "This is likely a luck/BABIP issue, NOT a primary arsenal problem. "
-                            "Sequencing coaching may help more than arsenal changes."
-                        )
-
                     cl, cr = st.columns([2, 3])
                     with cl:
-                        _prof_info = REBUILD_PROFILES.get(r["profile"], {})
                         st.markdown(f"""
                         <div class="ref-card">
                             <div style="font-size:1.8rem;font-weight:800;color:{bc};line-height:1;">
@@ -3699,221 +3999,29 @@ with tab_rebuild:
                                 <div class="score-bar" style="width:{sc_pct}%;background:{bc};"></div>
                             </div>
                             <div style="color:#8892a4;font-size:.76rem;font-weight:600;margin-top:10px;">
-                                KEY ISSUES:
+                                ARSENAL ISSUES (real Statcast data):
                             </div>
                             {"".join(f'<div style="color:#c9d1d9;font-size:.79rem;margin:3px 0;line-height:1.35;">• {rs}</div>' for rs in r["reasons"])}
                             <div style="color:#8892a4;font-size:.73rem;margin-top:8px;">
-                                ERA {_fv(r["era"])} · FIP {_fv(r["fip"])} ·
-                                ERA+ {_fv(r["era_p"],"{:.0f}")} · K/9 {_fv(r["so9"])} ·
-                                BB/9 {_fv(r["bb9"])} · WHIP {_fv(r["whip"])} ·
-                                HR/9 {_fv(r["hr9"])} · Age {_fv(r["age"],"{:.0f}")}
+                                Season context — ERA {_fv(r["era"])} · FIP {_fv(r["fip"])} ·
+                                K/9 {_fv(r["so9"])} · BB/9 {_fv(r["bb9"])} · Age {_fv(r["age"],"{:.0f}")}
                             </div>
                         </div>""", unsafe_allow_html=True)
 
-                        if _prof_info:
-                            st.markdown(f"""
-                            <div class="ref-card" style="margin-top:0;">
-                                <div class="ref-title">🔧 Rebuild Profile</div>
-                                <div style="color:#c9d1d9;font-size:.84rem;font-weight:700;margin-bottom:4px;">
-                                    {_prof_info.get('title','')}
-                                </div>
-                                <div style="color:#a0aec0;font-size:.78rem;line-height:1.45;margin-bottom:5px;">
-                                    {_prof_info.get('desc','')}
-                                </div>
-                                <div style="color:#63b3ff;font-size:.78rem;">
-                                    <b>Fix:</b> {_prof_info.get('fix','')}
-                                </div>
-                                <div style="color:#718096;font-size:.73rem;margin-top:3px;">
-                                    ⏱ {_prof_info.get('timeline','')}
-                                </div>
-                            </div>""", unsafe_allow_html=True)
-
                     with cr:
-                        st.markdown('<div class="report-wrap">', unsafe_allow_html=True)
-
-                        era  = r["era"]; fip = r["fip"]; so9 = r["so9"]; bb9 = r["bb9"]
-
-                        if not (np.isnan(era) or np.isnan(fip)):
-                            gap = era - fip
-                            if gap > 1.5 and fip < 4.0:
-                                st.markdown(
-                                    f'<div class="warn-box"><div class="rpt-p">'
-                                    f'🍀 <b>ERA-FIP gap {gap:.2f} with good FIP {fip:.2f}</b> — '
-                                    f'This is primarily a luck/BABIP issue. '
-                                    f'Sequencing coaching and defensive alignment '
-                                    f'may yield faster results than arsenal overhaul.</div></div>',
-                                    unsafe_allow_html=True)
-                            elif gap > 0.5 and fip >= 4.0:
-                                st.markdown(
-                                    f'<div class="danger-box"><div class="rpt-p">'
-                                    f'🔴 <b>ERA {era:.2f} > FIP {fip:.2f} (+{gap:.2f})</b> — '
-                                    f'Both metrics are elevated — genuine stuff and results problem.</div></div>',
-                                    unsafe_allow_html=True)
-                            elif gap < -0.5:
-                                st.markdown(
-                                    f'<div class="ok-box"><div class="rpt-p">'
-                                    f'✅ <b>ERA below FIP</b> — outperforming underlying metrics. '
-                                    f'Build in more swing-and-miss options for sustainable results.</div></div>',
-                                    unsafe_allow_html=True)
-
-                        if not np.isnan(so9):
-                            if so9 < 7.0:
-                                st.markdown(
-                                    f'<div class="danger-box"><div class="rpt-p">'
-                                    f'🔴 <b>K/9 {so9:.1f} — critically low.</b> '
-                                    f'Urgently needs a reliable miss-bat pitch (sweeper, splitter, '
-                                    f'high-spin curveball). This is the single most impactful arsenal fix.</div></div>',
-                                    unsafe_allow_html=True)
-                            elif so9 < 8.5:
-                                st.markdown(
-                                    f'<div class="warn-box"><div class="rpt-p">'
-                                    f'🟡 <b>K/9 {so9:.1f}</b> — below average. '
-                                    f'Identify which pitch generates most whiffs and increase its '
-                                    f'2-strike usage. Check if best whiff pitch is tunnelled with fastball.</div></div>',
-                                    unsafe_allow_html=True)
-
-                        if not np.isnan(bb9) and bb9 > 3.5:
-                            st.markdown(
-                                f'<div class="warn-box"><div class="rpt-p">'
-                                f'🟡 <b>BB/9 {bb9:.1f}</b> — elevated. '
-                                f'Focus on 3-1 and 3-2 counts. Develop a reliable zone-attack '
-                                f'secondary pitch (backdoor cutter, two-seam fastball arm-side).</div></div>',
-                                unsafe_allow_html=True)
-
-                        if not np.isnan(r["age"]):
-                            if r["age"] <= 25:
-                                st.markdown(
-                                    '<div class="insight-box"><div class="rpt-p">'
-                                    '🌱 <b>Development phase (≤25):</b> Highest rebuild upside. '
-                                    'Arsenal additions and mechanical changes have the best long-term probability of success.</div></div>',
-                                    unsafe_allow_html=True)
-                            elif r["age"] >= 33:
-                                st.markdown(
-                                    '<div class="insight-box"><div class="rpt-p">'
-                                    '🎓 <b>Veteran phase (≥33):</b> Command and sequencing improvements '
-                                    'yield better ROI than velocity-chasing. Grip changes and extension '
-                                    'work are most accessible mechanical levers.</div></div>',
-                                    unsafe_allow_html=True)
-
-                        st.markdown('</div>', unsafe_allow_html=True)
+                        fig_rb = plot_arsenal(r["ars"], r["name"], r["hand"])
+                        st.pyplot(fig_rb, width="stretch")
+                        plt.close(fig_rb)
 
                     st.markdown("---")
-                    _rb_parts = r["name"].split()
-                    _rb_fn = _rb_parts[0] if _rb_parts else ""
-                    _rb_ln = " ".join(_rb_parts[1:]) if len(_rb_parts) > 1 else ""
-
-                    if st.button(f"📡  Load Live Statcast for {r['name']}",
-                                 key=f"rb_sc_{rank}_{rb_season}"):
-                        _found_pid = None
-                        for _p2id, _p2meta in _pitcher_meta.items():
-                            _p2parts = _p2meta["name"].split(",")
-                            if len(_p2parts) == 2:
-                                _p2fn = _p2parts[1].strip().lower()
-                                _p2ln = _p2parts[0].strip().lower()
-                                if _rb_ln.lower() in _p2ln and _rb_fn.lower() in _p2fn:
-                                    _found_pid = _p2id
-                                    break
-                        if _found_pid:
-                            with st.spinner(f"Loading Statcast data for {r['name']}…"):
-                                _rb_raw = load_pitcher_data(_found_pid, rb_season)
-                            if not _rb_raw.empty:
-                                _rb_ars, _rb_tot, _rb_arm, _rb_ext, _rb_hand = \
-                                    build_pitcher_arsenal(_rb_raw)
-                                fig_rb = plot_arsenal(_rb_ars, r["name"], _rb_hand)
-                                st.pyplot(fig_rb, width="stretch")
-                                plt.close(fig_rb)
-                                st.markdown(
-                                    generate_pitcher_report(
-                                        r["name"], _rb_ars, _rb_tot,
-                                        _rb_arm, _rb_ext, _rb_hand,
-                                        f"{rb_season}", age=r["age"],
-                                    ),
-                                    unsafe_allow_html=True,
-                                )
-                            else:
-                                st.warning("No Statcast data found for this pitcher/season.")
-                        else:
-                            st.warning(
-                                "Could not match pitcher name to Statcast ID. "
-                                "Try the Pitcher Scout tab and search manually."
-                            )
-
-
-# ═══════════════════════════════════════════════════════════════════
-# TAB 4 — BATTER SCOUT
-# ═══════════════════════════════════════════════════════════════════
-
-@st.cache_data(ttl=7200, show_spinner=False)
-def build_batter_team_roster(
-    batter_meta: dict,
-    all_years: tuple = (2024, 2025, 2026),
-) -> dict:
-    roster: dict = {}
-
-    rev_map: dict = {}
-    for disp, bid in _batter_disp_map.items():
-        rev_map[bid] = disp
-
-    meta_path = DATA_DIR / "meta_batters.parquet"
-    if meta_path.exists():
-        mb = pd.read_parquet(meta_path, engine="pyarrow")
-        for _, row in mb.iterrows():
-            bid    = int(row["batter_id"])
-            season = int(row["season"])
-            team   = str(row["team"])
-            disp   = rev_map.get(bid)
-            if disp:
-                roster.setdefault(season, {}).setdefault(team, [])
-                if disp not in roster[season][team]:
-                    roster[season][team].append(disp)
-        for season in roster:
-            for team in roster[season]:
-                roster[season][team] = sorted(set(roster[season][team]))
-        return roster
-
-    for yr in all_years:
-        if yr not in STATCAST_FILES:
-            continue
-        parts_bt = []
-        for path in STATCAST_FILES[yr]:
-            if not path.exists():
-                continue
-            try:
-                meta_cols = ["batter","home_team","away_team","inning_topbot"]
-                if PYARROW_OK:
-                    sc = set(pq.read_schema(str(path)).names)
-                    use_cols = [c for c in meta_cols if c in sc]
-                else:
-                    use_cols = meta_cols
-                df_tmp = pd.read_parquet(path, engine="pyarrow", columns=use_cols)
-                parts_bt.append(df_tmp)
-            except Exception:
-                continue
-
-        if not parts_bt:
-            continue
-        df = pd.concat(parts_bt, ignore_index=True)
-        df["batter_team"] = np.where(
-            df["inning_topbot"] == "Top",
-            df["away_team"],
-            df["home_team"],
-        )
-        bt = (df[["batter","batter_team"]]
-              .dropna(subset=["batter_team"])
-              .drop_duplicates())
-        for _, row in bt.iterrows():
-            bid  = int(row["batter"])
-            team = str(row["batter_team"])
-            disp = rev_map.get(bid)
-            if disp:
-                roster.setdefault(yr, {}).setdefault(team, [])
-                if disp not in roster[yr][team]:
-                    roster[yr][team].append(disp)
-
-    for season in roster:
-        for team in roster[season]:
-            roster[season][team] = sorted(set(roster[season][team]))
-    return roster
+                    st.markdown(
+                        generate_pitcher_report(
+                            r["name"], r["ars"], r["total"],
+                            r["arm_avg"], r["ext_avg"], r["hand"],
+                            f"{rb_season}", age=r["age"],
+                        ),
+                        unsafe_allow_html=True,
+                    )
 
 
 with tab_batter:
@@ -4085,24 +4193,6 @@ with tab_batter:
             st.markdown('<div class="sec-hdr">🗺️ Strike Zone Heatmap + Sub-Zone Detail</div>',
                         unsafe_allow_html=True)
 
-            sz_zone_b = st.selectbox(
-                "🔬 Select zone for sub-zone breakdown (1–9):",
-                list(range(1, 10)),
-                format_func=lambda z: {
-                    1: "Zone 1 — Top-Inside",  2: "Zone 2 — Top-Middle",
-                    3: "Zone 3 — Top-Outside", 4: "Zone 4 — Mid-Inside",
-                    5: "Zone 5 — Center",      6: "Zone 6 — Mid-Outside",
-                    7: "Zone 7 — Bot-Inside",  8: "Zone 8 — Bot-Middle",
-                    9: "Zone 9 — Bot-Outside",
-                }.get(z, str(z)),
-                key="bs_sz_zone2",
-            )
-            sz_stat_b = st.selectbox(
-                "Sub-zone stat:",
-                STAT_LABELS,
-                key="bs_sz_stat2",
-            )
-
             col_hm_b, col_sz_b = st.columns([1, 1], gap="medium")
 
             with col_hm_b:
@@ -4118,45 +4208,68 @@ with tab_batter:
                 plt.close(fig_bs_hm)
 
             with col_sz_b:
-                st.markdown(
-                    f'<div style="color:#79b8ff;font-weight:600;font-size:.9rem;'
-                    f'margin-bottom:8px;">Zone {sz_zone_b} — {sz_stat_b} by Quadrant</div>',
-                    unsafe_allow_html=True,
+                _show_sz_b = st.checkbox(
+                    "🔬 Show sub-zone breakdown", value=False, key="show_sz_b2",
                 )
-                if not _bff.empty:
-                    fig_sz_b = draw_subzone_panel(_bff, sz_zone_b, sz_stat_b)
-                    st.pyplot(fig_sz_b, width="stretch")
-                    plt.close(fig_sz_b)
-
-                    _bff_zone = _bff[_bff["zone"] == sz_zone_b].copy()
-                    if not _bff_zone.empty and "plate_x" in _bff_zone.columns:
-                        _bff_zone["sub"] = _bff_zone.apply(
-                            lambda r: classify_subzone(
-                                float(r["plate_x"]) if not pd.isna(r["plate_x"]) else 0.0,
-                                float(r["plate_z"]) if not pd.isna(r["plate_z"]) else 2.5,
-                                sz_zone_b,
-                            ), axis=1,
-                        )
-                        _sz_tbl = _bff_zone.groupby("sub").agg(
-                            Pitches = ("is_swing",  "count"),
-                            Swing_p = ("is_swing",  "mean"),
-                            Whiff_p = ("is_whiff",  "mean"),
-                            xwOBA   = ("estimated_woba_using_speedangle","mean"),
-                            EV      = ("launch_speed","mean"),
-                        ).reset_index()
-                        _sz_tbl["Swing%"] = (_sz_tbl["Swing_p"]*100).round(1)
-                        _sz_tbl["Whiff%"] = (_sz_tbl["Whiff_p"]*100).round(1)
-                        _sz_tbl["xwOBA"]  = _sz_tbl["xwOBA"].round(3)
-                        _sz_tbl["EV"]     = _sz_tbl["EV"].round(1)
-                        _sz_tbl = _sz_tbl[["sub","Pitches","Swing%","Whiff%","xwOBA","EV"]]
-                        _sz_tbl.columns = ["Quadrant","Pitches","Swing%","Whiff%","xwOBA","Exit V"]
-                        st.dataframe(
-                            _sz_tbl.set_index("Quadrant"),
-                            width="stretch",
-                            height=190,
-                        )
+                if not _show_sz_b:
+                    st.caption("Sub-zone view hidden. Enable the checkbox to see per-quadrant detail for a zone.")
                 else:
-                    st.info("No data for selected filters.")
+                    sz_zone_b = st.selectbox(
+                        "Select zone for sub-zone breakdown (1–9):",
+                        list(range(1, 10)),
+                        format_func=lambda z: {
+                            1: "Zone 1 — Top-Inside",  2: "Zone 2 — Top-Middle",
+                            3: "Zone 3 — Top-Outside", 4: "Zone 4 — Mid-Inside",
+                            5: "Zone 5 — Center",      6: "Zone 6 — Mid-Outside",
+                            7: "Zone 7 — Bot-Inside",  8: "Zone 8 — Bot-Middle",
+                            9: "Zone 9 — Bot-Outside",
+                        }.get(z, str(z)),
+                        key="bs_sz_zone2",
+                    )
+                    sz_stat_b = st.selectbox(
+                        "Sub-zone stat:",
+                        STAT_LABELS,
+                        key="bs_sz_stat2",
+                    )
+                    st.markdown(
+                        f'<div style="color:#79b8ff;font-weight:600;font-size:.9rem;'
+                        f'margin-bottom:8px;">Zone {sz_zone_b} — {sz_stat_b} by Quadrant</div>',
+                        unsafe_allow_html=True,
+                    )
+                    if not _bff.empty:
+                        fig_sz_b = draw_subzone_panel(_bff, sz_zone_b, sz_stat_b)
+                        st.pyplot(fig_sz_b, width="stretch")
+                        plt.close(fig_sz_b)
+
+                        _bff_zone = _bff[_bff["zone"] == sz_zone_b].copy()
+                        if not _bff_zone.empty and "plate_x" in _bff_zone.columns:
+                            _bff_zone["sub"] = _bff_zone.apply(
+                                lambda r: classify_subzone(
+                                    float(r["plate_x"]) if not pd.isna(r["plate_x"]) else 0.0,
+                                    float(r["plate_z"]) if not pd.isna(r["plate_z"]) else 2.5,
+                                    sz_zone_b,
+                                ), axis=1,
+                            )
+                            _sz_tbl = _bff_zone.groupby("sub").agg(
+                                Pitches = ("is_swing",  "count"),
+                                Swing_p = ("is_swing",  "mean"),
+                                Whiff_p = ("is_whiff",  "mean"),
+                                xwOBA   = ("estimated_woba_using_speedangle","mean"),
+                                EV      = ("launch_speed","mean"),
+                            ).reset_index()
+                            _sz_tbl["Swing%"] = (_sz_tbl["Swing_p"]*100).round(1)
+                            _sz_tbl["Whiff%"] = (_sz_tbl["Whiff_p"]*100).round(1)
+                            _sz_tbl["xwOBA"]  = _sz_tbl["xwOBA"].round(3)
+                            _sz_tbl["EV"]     = _sz_tbl["EV"].round(1)
+                            _sz_tbl = _sz_tbl[["sub","Pitches","Swing%","Whiff%","xwOBA","EV"]]
+                            _sz_tbl.columns = ["Quadrant","Pitches","Swing%","Whiff%","xwOBA","Exit V"]
+                            st.dataframe(
+                                _sz_tbl.set_index("Quadrant"),
+                                width="stretch",
+                                height=190,
+                            )
+                    else:
+                        st.info("No data for selected filters.")
 
             st.markdown(
                 '<div class="sec-hdr">🎯 Pitch-Type Vulnerability — Velo · Spin · Movement · Whiff</div>',
@@ -4295,7 +4408,7 @@ with tab_batter:
                         "Pitches":int(d.get("pitches", 0)),
                         "Swing%": round(d.get("swing_pct", 0), 1),
                         "Whiff%": round(d.get("whiff_pct", 0), 1),
-                        "xwOBA":  round(d.get("avg_xwoba", np.nan) or np.nan, 3),
+                        "xwOBA":  round(safe_num(d.get("avg_xwoba"), np.nan), 3),
                     })
                 _plt_df = pd.DataFrame(_plt_rows).set_index("vs")
                 st.dataframe(
@@ -4306,8 +4419,8 @@ with tab_batter:
                     height=120,
                 )
                 if "R" in _bplt and "L" in _bplt:
-                    rh_xw = _bplt["R"].get("avg_xwoba", 0.320) or 0.320
-                    lh_xw = _bplt["L"].get("avg_xwoba", 0.320) or 0.320
+                    rh_xw = safe_num(_bplt["R"].get("avg_xwoba"), 0.320)
+                    lh_xw = safe_num(_bplt["L"].get("avg_xwoba"), 0.320)
                     rh_wh = _bplt["R"].get("whiff_pct", 0)
                     lh_wh = _bplt["L"].get("whiff_pct", 0)
                     if abs(rh_xw - lh_xw) > 0.030 or abs(rh_wh - lh_wh) > 5:
