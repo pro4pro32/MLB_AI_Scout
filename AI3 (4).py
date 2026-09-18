@@ -779,9 +779,7 @@ def load_pitcher_data(pitcher_id: int, year: int) -> pd.DataFrame:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_batter_data(batter_id: int, year: int) -> pd.DataFrame:
-    """Analogicznie dla battera."""
-    if "game_type" in df.columns:
-        df = df[df["game_type"] == "R"]
+    """Analogicznie dla battera — tylko regular season (game_type == R)."""
     if year not in STATCAST_FILES:
         return pd.DataFrame()
 
@@ -791,15 +789,37 @@ def load_batter_data(batter_id: int, year: int) -> pd.DataFrame:
             continue
         try:
             if PYARROW_OK:
+                schema = pq.read_schema(str(path))
+                names = set(schema.names)
+                use_cols = [c for c in ENTITY_COLS if c in names]
+                if "batter" not in names:
+                    continue
+
+                batter_type = schema.field("batter").type
+                bid_filter = (
+                    float(batter_id)
+                    if pa.types.is_floating(batter_type)
+                    else int(batter_id)
+                )
+
+                filters = [("batter", "=", bid_filter)]
+                if "game_type" in names:
+                    filters.append(("game_type", "=", "R"))
+
                 table = pq.read_table(
                     str(path),
-                    columns=[c for c in ENTITY_COLS if c in pq.read_schema(str(path)).names],
-                    filters=[("batter", "=", batter_id)],
+                    columns=use_cols,
+                    filters=filters,
                 )
                 df = table.to_pandas()
             else:
-                df = pd.read_parquet(path, columns=ENTITY_COLS)
-                df = df[df["batter"] == batter_id]
+                df = pd.read_parquet(path)
+                df = df[df["batter"].astype("Int64") == int(batter_id)]
+                if "game_type" in df.columns:
+                    df = df[df["game_type"] == "R"]
+
+            if "game_type" in df.columns:
+                df = df[df["game_type"] == "R"]
 
             if not df.empty:
                 dfs.append(df)
