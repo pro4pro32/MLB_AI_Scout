@@ -699,7 +699,6 @@ def build_meta_maps(years: tuple = (2024, 2025, 2026)) -> tuple:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_pitcher_data(pitcher_id: int, year: int) -> pd.DataFrame:
-    """Ładuje dane dla jednego pitchera — po miesiącach."""
     if year not in STATCAST_FILES:
         return pd.DataFrame()
 
@@ -709,19 +708,31 @@ def load_pitcher_data(pitcher_id: int, year: int) -> pd.DataFrame:
             continue
         try:
             if PYARROW_OK:
+                schema = pq.read_schema(str(path))
+                names = set(schema.names)
+                use_cols = [c for c in ENTITY_COLS if c in names]
+                if "pitcher" not in names:
+                    continue
+
+                # typ kolumny pitcher
+                pitcher_type = schema.field("pitcher").type
+                pid_filter = float(pitcher_id) if pa.types.is_floating(pitcher_type) else int(pitcher_id)
+
                 table = pq.read_table(
                     str(path),
-                    columns=[c for c in ENTITY_COLS if c in pq.read_schema(str(path)).names],
-                    filters=[("pitcher", "=", pitcher_id)],
+                    columns=use_cols,
+                    filters=[("pitcher", "=", pid_filter)],
                 )
                 df = table.to_pandas()
             else:
                 df = pd.read_parquet(path, columns=ENTITY_COLS)
-                df = df[df["pitcher"] == pitcher_id]
+                df = df[df["pitcher"].astype("Int64") == int(pitcher_id)]
 
             if not df.empty:
                 dfs.append(df)
-        except Exception:
+        except Exception as e:
+            # na czas debugu odkomentuj:
+            # st.warning(f"{path.name}: {e}")
             continue
 
     if not dfs:
@@ -741,19 +752,31 @@ def load_batter_data(batter_id: int, year: int) -> pd.DataFrame:
             continue
         try:
             if PYARROW_OK:
+                schema = pq.read_schema(str(path))
+                names = set(schema.names)
+                use_cols = [c for c in ENTITY_COLS if c in names]
+                if "pitcher" not in names:
+                    continue
+
+                # typ kolumny pitcher
+                pitcher_type = schema.field("pitcher").type
+                pid_filter = float(pitcher_id) if pa.types.is_floating(pitcher_type) else int(pitcher_id)
+
                 table = pq.read_table(
                     str(path),
-                    columns=[c for c in ENTITY_COLS if c in pq.read_schema(str(path)).names],
-                    filters=[("batter", "=", batter_id)],
+                    columns=use_cols,
+                    filters=[("pitcher", "=", pid_filter)],
                 )
                 df = table.to_pandas()
             else:
                 df = pd.read_parquet(path, columns=ENTITY_COLS)
-                df = df[df["batter"] == batter_id]
+                df = df[df["pitcher"].astype("Int64") == int(pitcher_id)]
 
             if not df.empty:
                 dfs.append(df)
-        except Exception:
+        except Exception as e:
+            # na czas debugu odkomentuj:
+            # st.warning(f"{path.name}: {e}")
             continue
 
     if not dfs:
