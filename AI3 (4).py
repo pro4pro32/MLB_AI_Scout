@@ -726,7 +726,7 @@ def build_meta_maps(years: tuple = (2024, 2025, 2026)) -> tuple:
 def load_pitcher_data(pitcher_id: int, year: int) -> pd.DataFrame:
     """Ładuje dane dla jednego pitchera — po miesiącach."""
     if "game_type" in df.columns:
-    df = df[df["game_type"] == "R"]
+        df = df[df["game_type"] == "R"]
     if year not in STATCAST_FILES:
         return pd.DataFrame()
 
@@ -760,7 +760,7 @@ def load_pitcher_data(pitcher_id: int, year: int) -> pd.DataFrame:
 def load_batter_data(batter_id: int, year: int) -> pd.DataFrame:
     """Analogicznie dla battera."""
     if "game_type" in df.columns:
-    df = df[df["game_type"] == "R"]
+        df = df[df["game_type"] == "R"]
     if year not in STATCAST_FILES:
         return pd.DataFrame()
 
