@@ -724,6 +724,7 @@ def build_meta_maps(years: tuple = (2024, 2025, 2026)) -> tuple:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_pitcher_data(pitcher_id: int, year: int) -> pd.DataFrame:
+    """Ładuje dane dla jednego pitchera — po miesiącach."""
     if year not in STATCAST_FILES:
         return pd.DataFrame()
 
@@ -733,40 +734,15 @@ def load_pitcher_data(pitcher_id: int, year: int) -> pd.DataFrame:
             continue
         try:
             if PYARROW_OK:
-                schema = pq.read_schema(str(path))
-                names = set(schema.names)
-                use_cols = [c for c in ENTITY_COLS if c in names]
-                if "pitcher" not in names:
-                    continue
-
-                pitcher_type = schema.field("pitcher").type
-                pid_filter = (
-                    float(pitcher_id)
-                    if pa.types.is_floating(pitcher_type)
-                    else int(pitcher_id)
-                )
-
-                filters = [("pitcher", "=", pid_filter)]
-                if "game_type" in names:
-                    filters.append(("game_type", "=", "R"))
-
                 table = pq.read_table(
                     str(path),
-                    columns=use_cols,
-                    filters=filters,
+                    columns=[c for c in ENTITY_COLS if c in pq.read_schema(str(path)).names],
+                    filters=[("pitcher", "=", pitcher_id)],
                 )
                 df = table.to_pandas()
             else:
-                cols = [c for c in ENTITY_COLS if c != "game_type"]
-                # game_type osobno, jeśli jest w pliku
-                df = pd.read_parquet(path)
-                df = df[df["pitcher"].astype("Int64") == int(pitcher_id)]
-                if "game_type" in df.columns:
-                    df = df[df["game_type"] == "R"]
-
-            # dodatkowy safety (gdy filtr pyarrow nie zadziałał)
-            if "game_type" in df.columns:
-                df = df[df["game_type"] == "R"]
+                df = pd.read_parquet(path, columns=ENTITY_COLS)
+                df = df[df["pitcher"] == pitcher_id]
 
             if not df.empty:
                 dfs.append(df)
@@ -777,9 +753,10 @@ def load_pitcher_data(pitcher_id: int, year: int) -> pd.DataFrame:
         return pd.DataFrame()
     return _add_flags(pd.concat(dfs, ignore_index=True))
 
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def load_batter_data(batter_id: int, year: int) -> pd.DataFrame:
-    """Analogicznie dla battera — tylko regular season (game_type == R)."""
+    """Analogicznie dla battera."""
     if year not in STATCAST_FILES:
         return pd.DataFrame()
 
@@ -789,37 +766,15 @@ def load_batter_data(batter_id: int, year: int) -> pd.DataFrame:
             continue
         try:
             if PYARROW_OK:
-                schema = pq.read_schema(str(path))
-                names = set(schema.names)
-                use_cols = [c for c in ENTITY_COLS if c in names]
-                if "batter" not in names:
-                    continue
-
-                batter_type = schema.field("batter").type
-                bid_filter = (
-                    float(batter_id)
-                    if pa.types.is_floating(batter_type)
-                    else int(batter_id)
-                )
-
-                filters = [("batter", "=", bid_filter)]
-                if "game_type" in names:
-                    filters.append(("game_type", "=", "R"))
-
                 table = pq.read_table(
                     str(path),
-                    columns=use_cols,
-                    filters=filters,
+                    columns=[c for c in ENTITY_COLS if c in pq.read_schema(str(path)).names],
+                    filters=[("batter", "=", batter_id)],
                 )
                 df = table.to_pandas()
             else:
-                df = pd.read_parquet(path)
-                df = df[df["batter"].astype("Int64") == int(batter_id)]
-                if "game_type" in df.columns:
-                    df = df[df["game_type"] == "R"]
-
-            if "game_type" in df.columns:
-                df = df[df["game_type"] == "R"]
+                df = pd.read_parquet(path, columns=ENTITY_COLS)
+                df = df[df["batter"] == batter_id]
 
             if not df.empty:
                 dfs.append(df)
